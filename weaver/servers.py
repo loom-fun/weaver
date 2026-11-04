@@ -76,3 +76,17 @@ def memory_bytes_for(package: Path) -> int:
         kv = ex["pool_capacity"] * 2 * cfg.get("kv_layers", cfg["layers"]) * cfg["kv_heads"] * cfg["head_dim"] * 2
         return int(w + kv + 6e9)
     return int(w * 1.5 + 8e9)
+
+
+def interruptible() -> None:
+    """Ctrl-C and `kill` both end a foreground weaver command through its cleanup (finally blocks).
+    A shell that starts weaver in the background (scripts, `cmd &`) leaves SIGINT ignored, and Python
+    then never raises KeyboardInterrupt; SIGTERM would kill it without cleanup. Found by the release
+    check: `weaver serve` started from a script ignored SIGINT and left the model and UI running."""
+    import signal
+
+    def _term(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    signal.signal(signal.SIGTERM, _term)
+

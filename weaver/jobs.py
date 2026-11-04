@@ -69,6 +69,8 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
               cont: bool = False, timeout_min: float | None = None, keep_servers: bool = False) -> pi.TaskResult:
     """One agent task. A session that ends without WEAVER_RESULT (output limit, a lost thread) is
     continued in place up to MAX_CONTINUES times; servers the job left running are stopped after."""
+    from weaver import servers
+    servers.interruptible()
     agent_server.ensure_running(rt, cfg, log)
     model = agent_server.configure_pi(cfg)
     base = rt.env(WEAVER_AGENT_PORT=cfg.agent.port, WEAVER_WORK=work)

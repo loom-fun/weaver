@@ -256,3 +256,23 @@ def test_record_port_never_erases_a_passing_port(home, tmp_path):
     jobs.record_port(ck, card, "resume")
     r = registry.passing(ck.slug)
     assert r and r["gates"] == "PASS" and r["package"] == str(pkg)
+
+
+def test_serve_style_cleanup_on_sigterm_and_ignored_sigint(tmp_path):
+    """Started with SIGINT ignored (a script's `cmd &`), a weaver command still cleans up on SIGINT and SIGTERM."""
+    import signal
+    import time
+    script = tmp_path / "s.py"
+    script.write_text(
+        "import time, sys\n"
+        "from weaver import servers\n"
+        "servers.interruptible()\n"
+        "try:\n    print('ready', flush=True)\n    time.sleep(30)\n"
+        "except KeyboardInterrupt:\n    print('cleanup', flush=True)\n")
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        p = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, text=True,
+                             preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
+        assert p.stdout.readline().strip() == "ready"
+        p.send_signal(sig)
+        out, _ = p.communicate(timeout=10)
+        assert "cleanup" in out, sig

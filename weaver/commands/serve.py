@@ -51,6 +51,7 @@ def run(rt: Runtime, cfg: Config, ck: Checkpoint, *, port: int | None, ui_port: 
         preset: str | None = None) -> int:
     port = port or cfg.defaults.serve_port
     ui_port = ui_port or cfg.defaults.ui_port
+    servers.interruptible()
     s = model_server.resolve(rt, cfg, ck, confirm=_confirm, no_spec=no_spec, verbose=verbose, preset=preset)
     if not keep_agent and servers.running(agent_server.NAME):
         jobs.log("stopping the agent server to free its memory (--keep-agent keeps it)")

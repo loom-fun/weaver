@@ -42,6 +42,7 @@ def run(rt: Runtime, cfg: Config, checkpoint: Checkpoint | None, *, ctx_size: in
         loom_skills: bool, user_config: bool, keep_agent: bool, keep_server: bool, port: int | None,
         no_spec: bool = False, preset: str | None = None) -> int:
     agent_dir = (Path.home() / ".pi" / "agent") if user_config else paths.pi_dir()
+    servers.interruptible()
     started = []
     if checkpoint is None:
         was_running = servers.ready(cfg.agent.port, cfg.agent.model_id)
