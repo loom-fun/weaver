@@ -1,11 +1,11 @@
 #!/bin/bash
-# Build the single-file weaver bundle: build/out/weaver-<version>-linux-x64
+# Build the single-file weaver bundle: packaging/out/weaver-<version>-linux-x64
 #   python/   relocatable CPython (python-build-standalone) + hrx-loom[hf] + the tools deps + weaver
 #   pi/       the standalone Pi release
 #   skills/   the pinned loom-skills (vendor/loom-skills)
 #   library/  hrx-loom-library at the catalog revision the SDK names (no git needed at run time)
 # Prebuilt pieces only, nothing compiled (like lemonade-sdk/vllm-rocm). Every download is sha-checked.
-# usage: build/build_bundle.sh [OUT_DIR=build/out]
+# usage: packaging/build_bundle.sh [OUT_DIR=packaging/out]
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); repo=$(cd "$here/.." && pwd)
 out=$(mkdir -p "${1:-$here/out}" && cd "${1:-$here/out}" && pwd)

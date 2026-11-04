@@ -5,7 +5,7 @@ import subprocess
 import tarfile
 from pathlib import Path
 
-STUB = Path(__file__).resolve().parent.parent / "build" / "stub.sh"
+STUB = Path(__file__).resolve().parent.parent / "packaging" / "stub.sh"
 
 
 def make_bundle(tmp: Path, version: str, sha: str, marker: str) -> Path:

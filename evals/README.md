@@ -5,7 +5,7 @@ Does weaver work end to end with the local agent? Four tiers, cheapest first.
 | Tier | Where | What | How |
 |---|---|---|---|
 | 0 | CI, no GPU | checkpoint parsing, Pi config, skill rendering, LOOM_ROOT shim, stub, upload staging, CLI | `pytest` |
-| 1 | clean container, no GPU | "no external requirements": the bundle runs on Ubuntu 24.04 with no python3 and no git | `evals/tier1_container.sh build/out/weaver-*-linux-x64` |
+| 1 | clean container, no GPU | "no external requirements": the bundle runs on Ubuntu 24.04 with no python3 and no git | `evals/tier1_container.sh packaging/out/weaver-*-linux-x64` |
 | 2 | Strix Halo | init, agent server speed, `weaver agent` (and `-m`), `weaver serve` + chat UI, cleanup | `evals/tier2_smoke.sh [weaver-binary]` |
 | 3 | Strix Halo | agent task evals: `port` / `optimize` / `serve` on the reference models, graded by outcome | `evals/run_eval.py MODEL CMD --trials N [--regrade]` |
 

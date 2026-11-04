@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tier 1: the bundle in a clean Ubuntu 24.04 container with no python3 and no git (no GPU needed).
-# usage: evals/tier1_container.sh build/out/weaver-<ver>-linux-x64
+# usage: evals/tier1_container.sh packaging/out/weaver-<ver>-linux-x64
 set -eu
 bin=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 docker run --rm -v "$bin:/weaver:ro" ubuntu:24.04 bash -c '

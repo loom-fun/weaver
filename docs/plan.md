@@ -34,13 +34,13 @@ weaver/
   prompts/{rules.md,port.md,optimize.md,serve.md,card.md}   # appended system prompt + per-command task prompts
   templates/model_card.md.j2      # loom-fun card style
 vendor/loom-skills                # git submodule, pinned (it is the version weaver ships)
-build/{build_bundle.sh,stub.sh,versions.env}   # pinned versions + sha256s of every downloaded input
+packaging/{build_bundle.sh,stub.sh,versions.env}   # pinned versions + sha256s of every downloaded input
 evals/                            # section "Evals"
 tests/                            # pytest, no GPU
 .github/workflows/{ci.yml,release.yml}
 ```
 
-## What the bundle contains (`build/build_bundle.sh`)
+## What the bundle contains (`packaging/build_bundle.sh`)
 
 This follows lemonade-sdk/vllm-rocm: prebuilt pieces only, nothing compiled.
 1. **Python**: relocatable CPython 3.12 from astral-sh/python-build-standalone (pinned and sha-checked).
@@ -102,7 +102,7 @@ It prints the fix for each failure.
     ```
 
     It reuses the GGUF if it is already in the HF cache. The model URL and revision are pinned in
-    `build/versions.env` and `config.toml agent.card`, so the agent never changes underneath a
+    `packaging/versions.env` and `config.toml agent.card`, so the agent never changes underneath a
     release.
   - **Serving it**: `agent_server.py` uses `serve.sh weaver-agent` on port 8079, state dir
     `$WEAVER_HOME/state`. The agent needs only 1–2 concurrent requests, so M0 checks whether a smaller
@@ -351,7 +351,7 @@ and exits with "run weaver init" if the agent model is missing.
 
 ## Verification
 
-- `pytest` passes, and `bash build/build_bundle.sh` produces `weaver-<ver>-linux-x64`.
+- `pytest` passes, and `bash packaging/build_bundle.sh` produces `weaver-<ver>-linux-x64`.
 - In a clean Ubuntu 24.04 container: `./weaver-…-linux-x64 doctor` reports only GPU-related failures,
   and `--version` works.
 - On Strix Halo:

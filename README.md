@@ -62,10 +62,10 @@ so `~/.pi` is not touched unless you pass `weaver agent --user-config`.
 
 ```sh
 git submodule update --init
-build/build_bundle.sh          # -> build/out/weaver-<version>-linux-x64
+packaging/build_bundle.sh          # -> packaging/out/weaver-<version>-linux-x64
 ```
 
-Every downloaded input is pinned with its sha256 in `build/versions.env`.
+Every downloaded input is pinned with its sha256 in `packaging/versions.env`.
 
 ## Evals
 
