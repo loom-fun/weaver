@@ -12,7 +12,7 @@ license = "MIT"
 dependencies = [
   "hrx-loom[hf]==0.1.0",
   # the loom-skills tools venv (loom-setup/scripts/install_loom.sh)
-  "gguf", "numpy", "tokenizers", "requests", "jinja2", "fastapi", "uvicorn", "httpx",
+  "gguf", "numpy", "tokenizers", "requests", "jinja2", "fastapi", "uvicorn", "httpx", "pillow",
 ]
 
 [project.optional-dependencies]

@@ -40,8 +40,15 @@ it (`--no-spec` turns it off).
 
 ## Install
 
-Download `weaver-<version>-linux-x64` from the releases, `chmod +x` it, and run it. On first run it
-unpacks itself to `~/.local/share/weaver/<version>/`. That holds:
+Download the single file from the [latest release](https://github.com/loom-fun/weaver/releases/latest) and run it:
+
+```sh
+gh release download -R loom-fun/weaver -p 'weaver-*-linux-x64'
+chmod +x weaver-*-linux-x64 && mkdir -p ~/.local/bin && mv weaver-*-linux-x64 ~/.local/bin/weaver
+weaver doctor && weaver init
+```
+
+On first run it unpacks itself (150 MB) to `~/.local/share/weaver/<version>/`. That holds:
 - a relocatable CPython 3.12;
 - `hrx-loom[hf]` 0.1.0;
 - the Pi binary;

@@ -19,7 +19,9 @@ different harness:
 - **Nobody is watching.** Never stop to ask a question. The only exception is a gated Hugging Face
   license: then end with a `WEAVER_RESULT` whose `status` is `"needs_license"` and whose `url` is the
   model page.
-- **Keep tool output short.** Pipe long logs through `tail`. Read files in parts.
+- **Keep tool output short, without pipes on long scripts.** Run a long script with its output in a
+  log file (`qualify.sh ... > qualify.log 2>&1; tail -60 qualify.log`), not piped (`| tail`): a server
+  it restarts in the background can keep a pipe open. Read files in parts.
 - **Log phases.** Append `<epoch seconds> <phase>` lines to `phases.log` in the work dir when a
   phase starts (port, qualify, optimize, finalize, report), and `# <note>` lines for anything that
   cost you time.

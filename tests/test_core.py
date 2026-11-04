@@ -160,3 +160,17 @@ def test_cli_parses():
     a = p.parse_args(["agent", "-m", "a/b", "--agent-args", "--thinking high"])
     assert a.model == "a/b" and a.agent_args == "--thinking high"
     assert p.parse_args(["agent"]).model is None
+
+
+def test_dependencies_cover_the_skills_tools_venv():
+    """weaver's environment replaces install_loom.sh's .tools venv: it must ship every package that
+    script installs (a trial agent had to pip-install Pillow when the skills started needing it)."""
+    import re
+    import tomllib
+    root = Path(__file__).resolve().parent.parent
+    deps = {re.split(r"[\[<>=!~ ]", d)[0].lower() for d in
+            tomllib.loads((root / "pyproject.toml").read_text())["project"]["dependencies"]}
+    script = (root / "vendor" / "loom-skills" / "skills" / "loom-setup" / "scripts" / "install_loom.sh").read_text()
+    line = next(l for l in script.splitlines() if ".tools/" in l and "pip install" in l)
+    tools = {w.lower() for w in line.split("pip install", 1)[1].split() if not w.startswith("-")}
+    assert tools <= deps, f"missing from pyproject dependencies: {sorted(tools - deps)}"
