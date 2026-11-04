@@ -93,7 +93,9 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
 
 
 def record_port(ck: Checkpoint, res: pi.TaskResult, kind: str) -> dict:
-    r = res.result or {}
+    r = dict(res.result or {})
+    if isinstance(r.get("draft"), dict) and "package" in r["draft"]:   # the whole PORT_RESULT came back
+        r["draft"] = r["draft"].get("draft")
     rec = {"checkpoint": ck.spec, "work": str(paths.work_dir(ck.slug)), "status": r.get("status", "failed"),
            "package": r.get("package"), "model_id": r.get("model_id"), "gguf": r.get("gguf"),
            "memory_bytes": r.get("memory_bytes"), "gates": r.get("gates", "NOT_RUN"),

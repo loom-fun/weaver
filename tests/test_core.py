@@ -67,6 +67,7 @@ def test_pi_config_merge_keeps_user_entries(tmp_path):
     settings = json.loads((d / "settings.json").read_text())
     assert set(models["providers"]) == {"mine", pi.LOCAL_PROVIDER}
     assert settings["defaultModel"] == "x" and settings["theme"] == "dark"
+    assert settings["httpIdleTimeoutMs"] == pi.HTTP_IDLE_TIMEOUT_MS
     pi.write_config(d, {pi.LOCAL_PROVIDER: prov}, f"{pi.LOCAL_PROVIDER}/m", force_default=True)
     assert json.loads((d / "settings.json").read_text())["defaultModel"] == "m"
 

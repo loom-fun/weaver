@@ -31,6 +31,7 @@ PI_URL = f"https://github.com/earendil-works/pi/releases/download/v{PI_VERSION}/
 
 LOCAL_PROVIDER = "weaver-local"     # the agent model
 MODELS_PROVIDER = "weaver-models"   # models served by `weaver agent -m` / `weaver serve`
+HTTP_IDLE_TIMEOUT_MS = 3_600_000
 RESULT_RE = re.compile(r"^WEAVER_RESULT\s+(\{.*\})\s*$", re.M)
 
 
@@ -109,13 +110,17 @@ def write_config(agent_dir: Path, providers: dict[str, dict], default: str | Non
     models = json.loads(mf.read_text()) if mf.is_file() else {}
     models.setdefault("providers", {}).update(providers)
     mf.write_text(json.dumps(models, indent=2))
+    sf = agent_dir / "settings.json"
+    settings = json.loads(sf.read_text()) if sf.is_file() else {}
     if default:
-        sf = agent_dir / "settings.json"
-        settings = json.loads(sf.read_text()) if sf.is_file() else {}
         prov, _, mid = default.partition("/")
         if force_default or not settings.get("defaultModel"):
             settings["defaultProvider"], settings["defaultModel"] = prov, mid
-        sf.write_text(json.dumps(settings, indent=2))
+    # Pi's 5-min HTTP idle timeout is shorter than a local model's long prefill (no bytes stream while
+    # it prefills; the agent model takes ~10 min for 100k tokens): an optimize run died on it at 63k.
+    if force_default or "httpIdleTimeoutMs" not in settings:
+        settings["httpIdleTimeoutMs"] = HTTP_IDLE_TIMEOUT_MS
+    sf.write_text(json.dumps(settings, indent=2))
 
 
 def env(agent_dir: Path, base: dict | None = None) -> dict:
