@@ -79,6 +79,29 @@ def lock(rt: Runtime, stage: Path) -> None:
                    env=rt.env(), check=True)
 
 
+def run_commands(repo_id: str, model_id: str, memory_bytes) -> str:
+    short = re.sub(r"[^a-z0-9.]+", "-", model_id.split("/")[-1].lower()).strip("-")
+    mem = f" --memory_bytes={memory_bytes}" if memory_bytes else ""
+    return ("```sh\n"
+            'pip install "hrx-loom[hf]"\n'
+            f"loom-fetch https://huggingface.co/{repo_id}/resolve/main/model.json --materialize=copy --output={short}\n"
+            f"loom-serve --model={short}/model.json --device=amdgpu{mem}\n"
+            "```")
+
+
+def ensure_run_commands(readme: Path, repo_id: str, model_id: str, memory_bytes) -> None:
+    """The how-to-run block is what makes the card usable: it is written by weaver, not left to the
+    agent (a trial's card dropped the loom-fetch line)."""
+    text = readme.read_text()
+    block = run_commands(repo_id, model_id, memory_bytes)
+    m = re.search(r"## How to run\s*\n+```(?:sh|bash)?\n.*?```", text, re.S)
+    if m:
+        text = text[:m.start()] + "## How to run\n\n" + block + text[m.end():]
+    else:
+        text = text.rstrip() + "\n\n## How to run\n\n" + block + "\n"
+    readme.write_text(text)
+
+
 def check_write_access(org: str) -> str:
     from huggingface_hub import HfApi
     try:
@@ -126,6 +149,9 @@ def run(rt: Runtime, cfg: Config, ck: Checkpoint, org: str, *, yes: bool = False
     readme = stage / "README.md"
     if not readme.is_file():
         raise SystemExit(f"the agent did not write {readme} (log: {res.log})")
+    ensure_run_commands(readme, repo_id, facts["model_id"], rec.get("memory_bytes"))
+    for junk in (".loom-fetch.lock",):
+        (stage / junk).unlink(missing_ok=True)
     files = sorted(str(p.relative_to(stage)) for p in stage.rglob("*") if p.is_file())
     print(readme.read_text())
     print(f"\n--- {len(files)} files to upload to https://huggingface.co/{repo_id} as {user}:")
@@ -137,7 +163,9 @@ def run(rt: Runtime, cfg: Config, ck: Checkpoint, org: str, *, yes: bool = False
     from huggingface_hub import HfApi
     api = HfApi()
     api.create_repo(repo_id, exist_ok=True, private=private)
-    api.upload_folder(repo_id=repo_id, folder_path=str(stage), commit_message="Loom package (weaver)")
+    # Replace what an earlier upload left (stale programs, lock files); other files in the repo stay.
+    api.upload_folder(repo_id=repo_id, folder_path=str(stage), commit_message="Loom package (weaver)",
+                      delete_patterns=["*.json", "*.lock", "*.loom", "*.md", "program/**"])
     url = f"https://huggingface.co/{repo_id}"
     registry.put(ck.slug, {"uploaded": url})
     print(f"published {url}; checking that loom-fetch resolves it...")

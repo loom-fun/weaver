@@ -221,3 +221,15 @@ print(json.dumps({{"type": "message_end", "message": {{"role": "assistant", "sto
     calls = (work / "calls.txt").read_text().splitlines()
     assert len(calls) == 2 and "--continue" in calls[1] and "output limit" in calls[1]
     assert stopped == [work]
+
+
+def test_upload_card_gets_run_commands(tmp_path):
+    r = tmp_path / "README.md"
+    r.write_text("# X for AMD Loom\n\n## How to run\n\n```sh\npip install \"hrx-loom[hf]\"\nloom-serve --model=x/model.json\n```\n\nThe server...\n")
+    upload.ensure_run_commands(r, "me/a-loom", "Qwen/Qwen3.5-0.8B", 8000000000)
+    t = r.read_text()
+    assert "loom-fetch https://huggingface.co/me/a-loom/resolve/main/model.json --materialize=copy --output=qwen3.5-0.8b" in t
+    assert "--memory_bytes=8000000000" in t and t.count("## How to run") == 1 and "The server..." in t
+    r.write_text("# card without the section\n")
+    upload.ensure_run_commands(r, "me/a-loom", "m", None)
+    assert "## How to run" in r.read_text() and "loom-fetch" in r.read_text()
