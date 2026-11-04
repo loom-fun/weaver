@@ -1,5 +1,6 @@
 """weaver: port, optimize and serve Hugging Face LLMs on AMD Loom, run by a local coding agent."""
 import argparse
+import json
 import subprocess
 import sys
 
@@ -147,8 +148,13 @@ def main(argv: list[str] | None = None) -> int:
             ck = parse_ck(a.checkpoint)
             res = jobs.run_agent(rt, cfg, paths.work_dir(ck.slug), "Continue where you stopped. Finish the task "
                                  "and end with the WEAVER_RESULT line.", cont=True, verbose=a.verbose)
-            rec = jobs.record_port(ck, res, "resume")
-            return 0 if rec.get("gates") == "PASS" else 1
+            if res.result is None:
+                print(f"weaver: no WEAVER_RESULT; see {res.log}", file=sys.stderr)
+                return 1
+            print("WEAVER_RESULT", json.dumps(res.result))
+            if res.result.get("package"):     # a port/optimize session; a card session doesn't touch the registry
+                jobs.record_port(ck, res, "resume")
+            return 0 if res.result.get("status") == "ok" else 1
     except KeyboardInterrupt:
         print("\ninterrupted", file=sys.stderr)
         return 130

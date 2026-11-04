@@ -93,14 +93,20 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
 
 
 def record_port(ck: Checkpoint, res: pi.TaskResult, kind: str) -> dict:
+    """Merge a port/optimize result into the registry. Only fields the result carries are written,
+    so a later session that reports less (a card, a resumed chat) never erases a passing port."""
     r = dict(res.result or {})
     if isinstance(r.get("draft"), dict) and "package" in r["draft"]:   # the whole PORT_RESULT came back
         r["draft"] = r["draft"].get("draft")
-    rec = {"checkpoint": ck.spec, "work": str(paths.work_dir(ck.slug)), "status": r.get("status", "failed"),
-           "package": r.get("package"), "model_id": r.get("model_id"), "gguf": r.get("gguf"),
-           "memory_bytes": r.get("memory_bytes"), "gates": r.get("gates", "NOT_RUN"),
-           "audit": r.get("audit", "NOT_RUN"), "report": r.get("report"), "draft": r.get("draft"),
-           "summary": r.get("summary", ""), "skills": rt_skills_rev(), f"{kind}_seconds": round(res.seconds)}
+    rec = {"checkpoint": ck.spec, "work": str(paths.work_dir(ck.slug)), "skills": rt_skills_rev(),
+           f"{kind}_seconds": round(res.seconds)}
+    for k in ("status", "package", "model_id", "gguf", "memory_bytes", "gates", "audit", "report", "draft", "summary"):
+        if r.get(k) is not None:
+            rec[k] = r[k]
+    if not registry.get(ck.slug):
+        rec.setdefault("status", "failed")
+        rec.setdefault("gates", "NOT_RUN")
+        rec.setdefault("audit", "NOT_RUN")
     return registry.put(ck.slug, rec)
 
 

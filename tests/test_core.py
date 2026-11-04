@@ -243,3 +243,16 @@ def test_pick_preset():
     assert pick_preset(["chat", "vision"], "vision") == "vision"
     with pytest.raises(RuntimeError):
         pick_preset(["chat"], "nope")
+
+
+def test_record_port_never_erases_a_passing_port(home, tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "model.json").write_text("{}")
+    ck = checkpoint.parse("a/b")
+    full = pi.TaskResult(True, {"status": "ok", "package": str(pkg), "gates": "PASS", "audit": "PASS"}, Path("x"), 1, "")
+    jobs.record_port(ck, full, "port")
+    card = pi.TaskResult(True, {"status": "ok", "readme": "/x/README.md"}, Path("x"), 1, "")
+    jobs.record_port(ck, card, "resume")
+    r = registry.passing(ck.slug)
+    assert r and r["gates"] == "PASS" and r["package"] == str(pkg)
