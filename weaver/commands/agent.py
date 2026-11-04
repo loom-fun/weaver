@@ -40,7 +40,7 @@ def _tool_calling(port: int, model_id: str) -> bool:
 
 def run(rt: Runtime, cfg: Config, checkpoint: Checkpoint | None, *, ctx_size: int | None, agent_args: str,
         loom_skills: bool, user_config: bool, keep_agent: bool, keep_server: bool, port: int | None,
-        no_spec: bool = False) -> int:
+        no_spec: bool = False, preset: str | None = None) -> int:
     agent_dir = (Path.home() / ".pi" / "agent") if user_config else paths.pi_dir()
     started = []
     if checkpoint is None:
@@ -52,7 +52,7 @@ def run(rt: Runtime, cfg: Config, checkpoint: Checkpoint | None, *, ctx_size: in
         if ctx_size:
             _cap_context(agent_dir, pi.LOCAL_PROVIDER, ctx_size)
     else:
-        s = model_server.resolve(rt, cfg, checkpoint, confirm=_confirm, no_spec=no_spec)
+        s = model_server.resolve(rt, cfg, checkpoint, confirm=_confirm, no_spec=no_spec, preset=preset)
         if not keep_agent and servers.running(agent_server.NAME):
             jobs.log("stopping the agent server to free memory for this model (--keep-agent keeps it)")
             agent_server.stop(rt)

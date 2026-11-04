@@ -47,10 +47,11 @@ def open_browser(url: str) -> None:
 
 
 def run(rt: Runtime, cfg: Config, ck: Checkpoint, *, port: int | None, ui_port: int | None,
-        browser: bool = True, keep_agent: bool = False, no_spec: bool = False, verbose: bool = False) -> int:
+        browser: bool = True, keep_agent: bool = False, no_spec: bool = False, verbose: bool = False,
+        preset: str | None = None) -> int:
     port = port or cfg.defaults.serve_port
     ui_port = ui_port or cfg.defaults.ui_port
-    s = model_server.resolve(rt, cfg, ck, confirm=_confirm, no_spec=no_spec, verbose=verbose)
+    s = model_server.resolve(rt, cfg, ck, confirm=_confirm, no_spec=no_spec, verbose=verbose, preset=preset)
     if not keep_agent and servers.running(agent_server.NAME):
         jobs.log("stopping the agent server to free its memory (--keep-agent keeps it)")
         agent_server.stop(rt)

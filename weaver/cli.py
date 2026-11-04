@@ -1,5 +1,6 @@
 """weaver: port, optimize and serve Hugging Face LLMs on AMD Loom, run by a local coding agent."""
 import argparse
+import subprocess
 import sys
 
 from weaver import __version__
@@ -36,6 +37,7 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--ui-port", type=int, help="playground port (default 8090)")
     s.add_argument("--no-browser", action="store_true")
     s.add_argument("--keep-agent", action="store_true", help="keep the agent server running")
+    s.add_argument("--preset", help="for a published or catalog card with several presets (default: chat)")
 
     s = ck(sub.add_parser("port", help="port a checkpoint to Loom, validate it, basic optimizations"))
     s.add_argument("--force", action="store_true", help="port again even if a passing port exists")
@@ -61,6 +63,7 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--keep-agent", action="store_true", help="with -m: keep the agent server running")
     s.add_argument("--keep-server", action="store_true", help="leave the model server(s) running when Pi exits")
     s.add_argument("--port", type=int, help="with -m: model port (default 8080)")
+    s.add_argument("--preset", help="with -m: the card preset (default: chat)")
     s.add_argument("--no-spec", action="store_true", help=argparse.SUPPRESS)
 
     s = sub.add_parser("agent-server", help="manage the local agent model server")
@@ -117,7 +120,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "serve":
             from weaver.commands import serve
             return serve.run(rt, cfg, parse_ck(a.checkpoint), port=a.port, ui_port=a.ui_port,
-                             browser=not a.no_browser, keep_agent=a.keep_agent, no_spec=a.no_spec, verbose=a.verbose)
+                             browser=not a.no_browser, keep_agent=a.keep_agent, no_spec=a.no_spec, verbose=a.verbose,
+                             preset=a.preset)
         if a.cmd == "port":
             from weaver import jobs
             rec = jobs.port(rt, cfg, parse_ck(a.checkpoint), force=a.force, no_spec=a.no_spec, verbose=a.verbose)
@@ -133,7 +137,8 @@ def main(argv: list[str] | None = None) -> int:
             from weaver.commands import agent
             return agent.run(rt, cfg, parse_ck(a.model) if a.model else None, ctx_size=a.ctx_size,
                              agent_args=a.agent_args, loom_skills=not a.no_loom_skills, user_config=a.user_config,
-                             keep_agent=a.keep_agent, keep_server=a.keep_server, port=a.port, no_spec=a.no_spec)
+                             keep_agent=a.keep_agent, keep_server=a.keep_server, port=a.port, no_spec=a.no_spec,
+                             preset=a.preset)
         if a.cmd == "agent-server":
             from weaver.commands import agent_server_cmd
             return agent_server_cmd.run(rt, cfg, a.action)
@@ -147,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\ninterrupted", file=sys.stderr)
         return 130
-    except (RuntimeError, OSError) as e:
+    except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
         if a.verbose:
             raise
         print(f"weaver: error: {e}", file=sys.stderr)

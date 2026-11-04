@@ -26,3 +26,22 @@
   automatic budget. weaver also passes the same budget to `port.sh` as `MEMORY_GIB`.
 - Tool-calling support for `weaver agent -m` is probed (a request with `tools`, where HTTP 400 means
   unsupported) rather than read from `llm_config.json`, which does not record it.
+
+## What the agent trials found (2026-11-04)
+
+Each row is a failure that a local-agent trial hit, with what fixed it. All are fixed; the evidence
+is in `evals/results.md`.
+
+| Found | Fix |
+|---|---|
+| `qualify.sh ... \| tail` never returned: `_lib.sh` restarted loom-serve in a backgrounded subshell that kept the pipe open | loom-skills `f6b9f31` (exec in the subshell); weaver's rules say to log long scripts to a file |
+| The compare gate failed a near-tie where Loom's token spanned two llama.cpp tokens (`[A` vs `[` `a`, gap 0.043) | loom-skills `cd9cc88` (score the choice at the next position) |
+| A 16k-token reasoning turn hit the output limit, and the session ended with no result | weaver continues the session (up to 3 times) when `WEAVER_RESULT` is missing |
+| An aborted session left the model server on :8160 | weaver stops every server the job's state dirs record |
+| Pi's 5-min HTTP idle timeout fired while the agent model prefilled a 63k-token context | `httpIdleTimeoutMs` 1 h in weaver's Pi settings |
+| The vision smoke test needed Pillow | added; a test keeps weaver's dependencies ⊇ the skills' tools venv |
+| The model card dropped the `loom-fetch` line | weaver writes the how-to-run block itself |
+| The skill scripts' paths were guessed wrong | the task prompts list the absolute paths |
+
+Open: history reuse on the agent server was partial in long sessions (28,672 of ~61k tokens read from
+cache), which makes each turn's prefill longer than it needs to be.

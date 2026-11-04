@@ -74,6 +74,18 @@ packaging/build_bundle.sh          # -> packaging/out/weaver-<version>-linux-x64
 
 Every downloaded input is pinned with its sha256 in `packaging/versions.env`.
 
+## What has been verified
+
+On Strix Halo (gfx1151, 128 GB), with the local agent (details in [evals/results.md](evals/results.md)):
+- `weaver port` Qwen3.5-0.8B: full gates and audit PASS in 24.7 min, as fast as the Claude Code trials.
+- `optimize`, `serve` (a published package, a catalog card, and a finished port), the chat UI, `agent` and `agent -m`, and `upload` all worked, including serving the uploaded repo from a fresh install.
+- `weaver port` of Bolt-E4B (gemma4 E4B): full gates and audit PASS in 97.5 min, through the gemma4 reference example (Claude Code took 43.5).
+
+Known issues:
+- The catalog Qwen3.8-27B card at hrx-loom 0.1.0's pinned library revision does not link on 0.1.0 (`root symbol '@text_chat_reasoning_v1' was not found`). Serve `huggingface://loom-fun/bartowski-Qwen3.8-27B-loom` instead.
+- Some published loom-fun packages were built with a newer SDK and do not compile on 0.1.0 (Bolt-E4B-4GB). `weaver port` the GGUF instead.
+- The release binary in a clean Ubuntu 24.04 container.
+
 ## Evals
 
 See [evals/README.md](evals/README.md): unit tests, a clean-container check, a Strix Halo smoke test,

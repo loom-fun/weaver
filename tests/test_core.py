@@ -233,3 +233,13 @@ def test_upload_card_gets_run_commands(tmp_path):
     r.write_text("# card without the section\n")
     upload.ensure_run_commands(r, "me/a-loom", "m", None)
     assert "## How to run" in r.read_text() and "loom-fetch" in r.read_text()
+
+
+def test_pick_preset():
+    from weaver.model_server import pick_preset
+    assert pick_preset(["chat", "vision", "target-only", "dflash2", "cdna-text"]) == "chat"
+    assert pick_preset(["chat"]) is None                     # a single preset needs no flag
+    assert pick_preset(["image", "image-int8"]) == "image"
+    assert pick_preset(["chat", "vision"], "vision") == "vision"
+    with pytest.raises(RuntimeError):
+        pick_preset(["chat"], "nope")

@@ -25,6 +25,7 @@ class Servable:
     model_json: Path
     memory_bytes: int
     model_id: str | None = None
+    preset: str | None = None      # loom-serve --preset, for a card with several
 
 
 def _hf_has_model_json(repo: str) -> bool:
@@ -51,11 +52,37 @@ def find_catalog(library: Path | None, ck: Checkpoint) -> Path | None:
     return None
 
 
-def _fetch(rt: Runtime, source: str, out: Path) -> Path:
-    jobs.log(f"loom-fetch {source} -> {out}")
-    subprocess.run([str(rt.loom_root / ".venv" / "bin" / "loom-fetch"), source, f"--output={out}", "--no-input"],
-                   env=rt.env(), check=True)
-    return out / "model.json"
+PREFERRED_PRESETS = ("chat", "text", "default")
+
+
+def pick_preset(presets: list[str], wanted: str | None = None) -> str | None:
+    """loom-fetch needs an explicit preset when a card declares several (the catalog Qwen3.8-27B has
+    chat, vision, target-only, dflash2, cdna-text): the user's choice, else a text chat preset, else the
+    first."""
+    if wanted:
+        if wanted not in presets:
+            raise RuntimeError(f"preset {wanted!r} is not in this card: {', '.join(presets)}")
+        return wanted
+    if len(presets) <= 1:
+        return None
+    return next((p for p in PREFERRED_PRESETS if p in presets), presets[0])
+
+
+def _fetch(rt: Runtime, source: str, out: Path, preset: str | None = None) -> tuple[Path, str | None]:
+    fetch = str(rt.loom_root / ".venv" / "bin" / "loom-fetch")
+    listing = subprocess.run([fetch, source, "--list", "--json", "--no-input"], env=rt.env(),
+                             capture_output=True, text=True)
+    try:
+        presets = list((json.loads(listing.stdout).get("presets") or {}).keys())
+    except ValueError:
+        presets = []
+    chosen = pick_preset(presets, preset)
+    jobs.log(f"loom-fetch {source}{f' (preset {chosen})' if chosen else ''} -> {out}")
+    p = subprocess.run([fetch, source, f"--output={out}", "--no-input", *([f"--preset={chosen}"] if chosen else [])],
+                       env=rt.env())
+    if p.returncode != 0:
+        raise RuntimeError(f"loom-fetch failed for {source} (exit {p.returncode}; its messages are above)")
+    return out / "model.json", chosen
 
 
 def _weights_bytes(pkg: Path) -> int:
@@ -64,16 +91,16 @@ def _weights_bytes(pkg: Path) -> int:
 
 
 def resolve(rt: Runtime, cfg: Config, ck: Checkpoint, *, allow_port: bool = True,
-            confirm=None, no_spec: bool = False, verbose: bool = False) -> Servable:
+            confirm=None, no_spec: bool = False, verbose: bool = False, preset: str | None = None) -> Servable:
     budget = jobs.target_budget_gib(cfg, agent_running=False) * 2**30
     if ck.repo and _hf_has_model_json(ck.repo):
-        mj = _fetch(rt, f"https://huggingface.co/{ck.repo}/resolve/main/model.json",
-                    paths.home() / "packages" / ck.slug)
-        return Servable("package", mj, _memory_for_fetched(mj.parent, budget))
+        mj, chosen = _fetch(rt, f"https://huggingface.co/{ck.repo}/resolve/main/model.json",
+                            paths.home() / "packages" / ck.slug, preset)
+        return Servable("package", mj, _memory_for_fetched(mj.parent, budget), preset=chosen)
     card = find_catalog(rt.library, ck)
     if card:
-        mj = _fetch(rt, str(card), paths.home() / "packages" / ck.slug)
-        return Servable("catalog", mj, _memory_for_fetched(mj.parent, budget))
+        mj, chosen = _fetch(rt, str(card), paths.home() / "packages" / ck.slug, preset)
+        return Servable("catalog", mj, _memory_for_fetched(mj.parent, budget), preset=chosen)
     rec = registry.passing(ck.slug)
     if not rec:
         if not allow_port:
@@ -102,13 +129,15 @@ def serve(rt: Runtime, name: str, port: int, s: Servable) -> dict:
     if servers.running(name):
         servers.stop(rt, name)
     try:
-        servers.start(rt, name, port, s.memory_bytes, [s.model_json])
+        servers.start(rt, name, port, s.memory_bytes, [s.model_json],
+                      [f"--preset={s.preset}"] if s.preset else None)
     except RuntimeError as e:
-        if s.kind in ("package", "catalog") and "BACKEND/" in str(e):
+        if s.kind in ("package", "catalog") and ("BACKEND/" in str(e) or "LINK/" in str(e)):
             import importlib.metadata as md
-            raise RuntimeError(f"{e}\n\nThis package does not compile with hrx-loom {md.version('hrx-loom')} "
-                               "(the SDK in this weaver). It was probably built with a newer SDK; port the "
-                               "original checkpoint instead (weaver port ORG/REPO).") from None
+            raise RuntimeError(f"{e}\n\nThis {s.kind} does not compile with hrx-loom {md.version('hrx-loom')} "
+                               "(the SDK in this weaver): it targets a different SDK. Port the original "
+                               "GGUF checkpoint instead (weaver serve/port ORG/REPO-GGUF), or serve a package "
+                               "built for this SDK (e.g. huggingface://loom-fun/bartowski-Qwen3.8-27B-loom).") from None
         raise
     st = servers.status(port) or {}
     data = st.get("data") or []
