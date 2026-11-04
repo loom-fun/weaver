@@ -1,0 +1,33 @@
+name: release
+# Push a tag v<version> (matching weaver/__init__.py) to build the bundle, run Tier 0 + Tier 1, and
+# publish weaver-<version>-linux-x64 as a GitHub release asset. Tier 2/3 run on Strix Halo hardware
+# before tagging (evals/README.md); their results go in evals/results.md.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.LOOM_SKILLS_TOKEN || github.token }}   # loom-skills is private
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: version matches the tag
+        run: |
+          v=$(python -c "import re;print(re.search(r'__version__ = \"(.+)\"', open('weaver/__init__.py').read())[1])")
+          test "v$v" = "${GITHUB_REF_NAME}"
+      - run: pip install '.[test]' && pytest -q
+      - run: packaging/build_bundle.sh
+      - run: evals/tier1_container.sh packaging/out/weaver-*-linux-x64
+      - run: (cd packaging/out && sha256sum weaver-*-linux-x64 > SHA256SUMS)
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" packaging/out/weaver-*-linux-x64 packaging/out/SHA256SUMS \
+            --title "weaver $GITHUB_REF_NAME" --notes-file docs/release-notes.md

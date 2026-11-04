@@ -68,6 +68,8 @@ def stage_package(pkg: Path, stage: Path, gguf_hint: str | None, extra_ggufs: li
                     f["origin"] = f"@{key}/{file}"
     card["origins"] = {**card.get("origins", {}), **origins}
     (stage / "model.json").write_text(json.dumps(card, indent=1))
+    import importlib.metadata as md
+    (stage / "weaver.json").write_text(json.dumps({"hrx_loom": md.version("hrx-loom"), "built_with": "weaver"}, indent=1))
     return {"origins": origins, "model_id": card["model"]["id"], "name": card["model"].get("name")}
 
 
@@ -100,7 +102,8 @@ def repo_name(ck: Checkpoint, org: str) -> str:
     return f"{org}/{base}-loom"
 
 
-def run(rt: Runtime, cfg: Config, ck: Checkpoint, org: str, *, yes: bool = False, verbose: bool = False) -> int:
+def run(rt: Runtime, cfg: Config, ck: Checkpoint, org: str, *, yes: bool = False, private: bool = False,
+        verbose: bool = False) -> int:
     rec = registry.passing(ck.slug)
     if not rec:
         raise SystemExit(f"{ck} has no passing port: run `weaver port {ck}` first")
@@ -133,7 +136,7 @@ def run(rt: Runtime, cfg: Config, ck: Checkpoint, org: str, *, yes: bool = False
             return 1
     from huggingface_hub import HfApi
     api = HfApi()
-    api.create_repo(repo_id, exist_ok=True)
+    api.create_repo(repo_id, exist_ok=True, private=private)
     api.upload_folder(repo_id=repo_id, folder_path=str(stage), commit_message="Loom package (weaver)")
     url = f"https://huggingface.co/{repo_id}"
     registry.put(ck.slug, {"uploaded": url})

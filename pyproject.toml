@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Port, optimize and serve Hugging Face LLMs on AMD Loom with a local coding agent"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 dependencies = [
   "hrx-loom[hf]==0.1.0",
   # the loom-skills tools venv (loom-setup/scripts/install_loom.sh)

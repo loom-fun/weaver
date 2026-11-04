@@ -15,8 +15,9 @@ class AgentConfig:
     card: str = f"https://huggingface.co/{AGENT_CARD_REPO}/resolve/{AGENT_CARD_REVISION}/model.json"
     model_id: str = "qwen3.8-27b"
     port: int = 8079
-    # Card default is 45 GB (4 rows, 327,680-position pool). Calibrated by `weaver agent-server bench`.
-    memory_bytes: int = 45_000_000_000
+    # The card's 45 GB sizes 4 concurrent rows; weaver's sessions use one or two. 32 GB served a
+    # 100,130-token prompt correctly (M0) and leaves 43.8 GiB of the 60 % budget to the model being ported.
+    memory_bytes: int = 32_000_000_000
     thinking: str = "medium"   # Pi thinking level for weaver's own sessions
 
 

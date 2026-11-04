@@ -101,7 +101,15 @@ def serve(rt: Runtime, name: str, port: int, s: Servable) -> dict:
     """Start it and return its /v1/status model record."""
     if servers.running(name):
         servers.stop(rt, name)
-    servers.start(rt, name, port, s.memory_bytes, [s.model_json])
+    try:
+        servers.start(rt, name, port, s.memory_bytes, [s.model_json])
+    except RuntimeError as e:
+        if s.kind in ("package", "catalog") and "BACKEND/" in str(e):
+            import importlib.metadata as md
+            raise RuntimeError(f"{e}\n\nThis package does not compile with hrx-loom {md.version('hrx-loom')} "
+                               "(the SDK in this weaver). It was probably built with a newer SDK; port the "
+                               "original checkpoint instead (weaver port ORG/REPO).") from None
+        raise
     st = servers.status(port) or {}
     data = st.get("data") or []
     if not data:

@@ -49,6 +49,7 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("checkpoint", metavar="CHECKPOINT")
     s.add_argument("org", metavar="HF-ORG")
     s.add_argument("-y", "--yes", action="store_true", help="publish without the confirmation prompt")
+    s.add_argument("--private", action="store_true", help="create the Hugging Face repo as private")
 
     s = sub.add_parser("agent", help="interactive Pi session on the local agent model, or on CHECKPOINT with -m")
     s.add_argument("-m", "--model", metavar="CHECKPOINT", help="serve this checkpoint and use it as the model")
@@ -70,7 +71,25 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
+def _ca_certificates() -> None:
+    """Use certifi's CA bundle when the system has none (minimal containers): urllib, the HF
+    client and loom-fetch then verify HTTPS the same way everywhere."""
+    import os
+    import ssl
+    if os.environ.get("SSL_CERT_FILE"):
+        return
+    paths = ssl.get_default_verify_paths()
+    if (paths.cafile and os.path.isfile(paths.cafile)) or (paths.capath and os.path.isdir(paths.capath) and os.listdir(paths.capath)):
+        return
+    try:
+        import certifi
+    except ImportError:
+        return
+    os.environ["SSL_CERT_FILE"] = certifi.where()
+
+
 def main(argv: list[str] | None = None) -> int:
+    _ca_certificates()
     p = _parser()
     a = p.parse_args(argv)
     if not a.cmd:
@@ -109,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if rec.get("audit") == "PASS" else 1
         if a.cmd == "upload":
             from weaver.commands import upload
-            return upload.run(rt, cfg, parse_ck(a.checkpoint), a.org, yes=a.yes, verbose=a.verbose)
+            return upload.run(rt, cfg, parse_ck(a.checkpoint), a.org, yes=a.yes, private=a.private, verbose=a.verbose)
         if a.cmd == "agent":
             from weaver.commands import agent
             return agent.run(rt, cfg, parse_ck(a.model) if a.model else None, ctx_size=a.ctx_size,

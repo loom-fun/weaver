@@ -22,9 +22,13 @@ def home() -> Path:
 
 
 def bundle_root() -> Path | None:
-    """The unpacked bundle (set by the self-extracting stub), or None when pip-installed."""
+    """The unpacked bundle, or None when pip-installed. The stub sets WEAVER_BUNDLE; running the
+    bundled interpreter directly is recognised by the BUNDLE file next to python/."""
     b = os.environ.get("WEAVER_BUNDLE")
-    return Path(b) if b else None
+    if b:
+        return Path(b)
+    root = Path(sys.executable).resolve().parent.parent.parent    # <bundle>/python/bin/python3
+    return root if (root / "BUNDLE").is_file() else None
 
 
 def skills_source() -> Path:

@@ -94,7 +94,7 @@ def test_defaults():
     assert jobs.default_budget_min(cfg) == 90
     assert "roofline" in jobs.target_text(None)
     assert "decode+30%" in jobs.target_text("decode+30%")
-    assert 30 < cfg.reserved_gib < 50
+    assert 20 < cfg.reserved_gib < 50
 
 
 def test_config_roundtrip(home):

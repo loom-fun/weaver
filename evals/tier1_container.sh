@@ -12,7 +12,10 @@ docker run --rm -v "$bin:/weaver:ro" ubuntu:24.04 bash -c '
   "$B/pi/pi" --version
   "$B/python/bin/python3" -I -c "import weaver, loom; print(\"imports ok\")"
   ls "$B/library/model" | head -3
-  "$B/python/bin/python3" -I -m weaver agent-server status || true   # builds the runtime (shim, skills)
+  # builds the runtime (shim, skills, library); "not running" is expected here, a traceback is not
+  "$B/python/bin/python3" -I -m weaver agent-server status > /tmp/st.log 2>&1 || true
+  cat /tmp/st.log; ! grep -q Traceback /tmp/st.log
+  test -e ~/.local/share/weaver/loom/library/model && echo "bundled library linked"
   L=~/.local/share/weaver/loom/.venv/bin
   "$L/loom-serve" --help >/dev/null && echo "loom-serve ok"
   "$L/loom-fetch" --help >/dev/null && echo "loom-fetch ok"
