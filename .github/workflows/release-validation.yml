@@ -82,7 +82,6 @@ jobs:
     timeout-minutes: 240
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      WEAVER_HOME: ${{ runner.temp }}/weaver-home
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -91,6 +90,7 @@ jobs:
           path: bundle
       - name: init (agent model, Pi, llama.cpp reference)
         run: |
+          export WEAVER_HOME=$RUNNER_TEMP/weaver-home; echo "WEAVER_HOME=$WEAVER_HOME" >> "$GITHUB_ENV"
           W=$(ls $PWD/bundle/weaver-*-linux-x64); chmod +x "$W"; echo "W=$W" >> "$GITHUB_ENV"
           "$W" doctor || true
           "$W" init
