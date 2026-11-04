@@ -1,8 +1,9 @@
 #!/bin/bash
 # Download a published release the way a user does and check it works, from nothing.
-# usage: evals/release_check.sh [TAG=latest] [REPO=loom-fun/weaver]
+# usage: evals/release_check.sh [TAG=latest | PATH/TO/weaver-*-linux-x64] [REPO=loom-fun/weaver]
 #   1. gh release download into an empty dir; sha256 against the release's SHA256SUMS
-#   2. Tier 1: the downloaded file in a clean Ubuntu 24.04 container (no python3, no git)
+#      (or a local bundle file, e.g. a CI build artifact: copied in, sha against SHA256SUMS next to it if any)
+#   2. Tier 1: the file in a clean Ubuntu 24.04 container (no python3, no git); skipped without docker
 #   3. on this machine, a fresh WEAVER_HOME (the HF cache is shared, so no 17 GB re-download):
 #      --version, doctor, init, an agent turn through `weaver agent`, `weaver serve` of a published
 #      package + a chat through the UI proxy, Ctrl-C cleanup
@@ -14,13 +15,17 @@ pass=0; fail=0
 check() { if eval "$2"; then echo "PASS  $1"; pass=$((pass+1)); else echo "FAIL  $1"; fail=$((fail+1)); fi; }
 up() { curl -s -m 2 "localhost:$1/v1/status" >/dev/null; }
 
-if [ "$tag" = latest ]; then gh release download -R "$repo" -p 'weaver-*-linux-x64' -p SHA256SUMS
+if [ -f "$tag" ]; then
+  cp "$tag" "$dir/"; [ -f "$(dirname "$tag")/SHA256SUMS" ] && cp "$(dirname "$tag")/SHA256SUMS" "$dir/"
+elif [ "$tag" = latest ]; then gh release download -R "$repo" -p 'weaver-*-linux-x64' -p SHA256SUMS
 else gh release download "$tag" -R "$repo" -p 'weaver-*-linux-x64' -p SHA256SUMS; fi
 bin=$(ls "$dir"/weaver-*-linux-x64)
-check "downloaded $(basename "$bin") ($(du -h "$bin" | cut -f1))" "[ -s '$bin' ]"
-check "sha256 matches SHA256SUMS" "sha256sum -c --quiet SHA256SUMS"
+check "got $(basename "$bin") ($(du -h "$bin" | cut -f1))" "[ -s '$bin' ]"
+if [ -f SHA256SUMS ]; then check "sha256 matches SHA256SUMS" "sha256sum -c --quiet SHA256SUMS"; else echo "SKIP  sha256 (no SHA256SUMS)"; fi
 chmod +x "$bin"
-check "tier 1: clean Ubuntu 24.04 container" "'$here/tier1_container.sh' '$bin' > tier1.log 2>&1 && grep -q 'TIER1 PASS' tier1.log"
+if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
+  check "tier 1: clean Ubuntu 24.04 container" "'$here/tier1_container.sh' '$bin' > tier1.log 2>&1 && grep -q 'TIER1 PASS' tier1.log"
+else echo "SKIP  tier 1 (no docker here; the build job runs it)"; fi
 
 export WEAVER_HOME="$dir/home"
 W="$bin"

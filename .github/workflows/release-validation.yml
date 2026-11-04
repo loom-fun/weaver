@@ -1,0 +1,135 @@
+name: release-validation
+# The release bar (evals/README.md, issue #1), on AMD DevLab Dispatch Strix Halo runners, never on a
+# developer's machine:
+#   build    (GitHub-hosted)  tests, bundle, Tier 1 clean container  -> the bundle artifact
+#   smoke    (DevLab)         evals/release_check.sh on that bundle: doctor, init, agent, serve + chat, cleanup
+#   trials   (DevLab matrix)  model x command x 3 trials in parallel, one runner each: the local agent
+#                             ports (and serves) the model; graded by full gates + AUDIT (+ the chat UI)
+#   verdict  (GitHub-hosted)  every (model, command) cell needs 3/3
+# Runs on pull requests labeled `release-validation`, on demand, and from release.yml for a tag.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MODELS: unsloth/Qwen3.5-0.8B-GGUF,unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'release-validation')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.LOOM_SKILLS_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install '.[test]' && pytest -q
+      - run: packaging/build_bundle.sh
+      - run: evals/tier1_container.sh packaging/out/weaver-*-linux-x64
+      - run: (cd packaging/out && sha256sum weaver-*-linux-x64 > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weaver-bundle
+          path: |
+            packaging/out/weaver-*-linux-x64
+            packaging/out/SHA256SUMS
+          retention-days: 14
+
+  smoke:
+    needs: build
+    # AMD DevLab's pool: `devlab-dispatch` opts in to the pool and `strix-halo` narrows it to gfx1151.
+    runs-on: [strix-halo, devlab-dispatch, Linux, self-hosted]
+    timeout-minutes: 60
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: weaver-bundle
+          path: bundle
+      - name: release_check.sh on the CI bundle
+        run: |
+          set -o pipefail
+          TMPDIR=$RUNNER_TEMP bash evals/release_check.sh "$(ls $PWD/bundle/weaver-*-linux-x64)" 2>&1 | tee smoke.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs
+          path: smoke.log
+
+  trials:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [unsloth/Qwen3.5-0.8B-GGUF, unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF]
+        cmd: [port, serve]
+        trial: [1, 2, 3]
+    runs-on: [strix-halo, devlab-dispatch, Linux, self-hosted]
+    timeout-minutes: 240
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      WEAVER_HOME: ${{ runner.temp }}/weaver-home
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: weaver-bundle
+          path: bundle
+      - name: init (agent model, Pi, llama.cpp reference)
+        run: |
+          W=$(ls $PWD/bundle/weaver-*-linux-x64); chmod +x "$W"; echo "W=$W" >> "$GITHUB_ENV"
+          "$W" doctor || true
+          "$W" init
+      - name: "trial ${{ matrix.trial }}: weaver ${{ matrix.cmd }} ${{ matrix.model }}"
+        run: |
+          PY=$(ls -d "$WEAVER_HOME"/*/python/bin/python3 | head -1)   # the bundle's own interpreter
+          "$PY" -I evals/run_eval.py "huggingface://${{ matrix.model }}" ${{ matrix.cmd }} --weaver "$W" --stall-min 40
+      - if: always()
+        name: collect
+        run: |
+          mkdir -p out
+          for d in evals/runs/*/*/; do
+            n=out/$(basename "$d"); mkdir -p "$n"
+            cp "$d"/eval.json "$d"/weaver.log "$n"/ 2>/dev/null || true
+            cp "$d"/work/*/phases.log "$d"/work/*/bench/report.md "$d"/work/*/bench/gates.json "$n"/ 2>/dev/null || true
+          done
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trial-${{ strategy.job-index }}
+          path: out
+
+  verdict:
+    needs: [build, smoke, trials]
+    if: always() && needs.build.result != 'skipped'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: trial-*
+          path: trials
+      - name: 3/3 per cell, and the smoke test
+        run: |
+          python3 evals/verdict.py trials --trials 3 --models "$MODELS" --cmds port,serve \
+            --summary "$GITHUB_STEP_SUMMARY" --rows rows.md
+          test "${{ needs.smoke.result }}" = success
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-rows
+          path: rows.md
