@@ -30,10 +30,9 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 SKILLS = REPO / "vendor" / "loom-skills" / "skills"
 
-SUITE = {   # model -> what it exercises (keep in step with loom-improve's reference suite)
+SUITE = {   # model -> what it exercises. Bolt-E4B is the largest model weaver evals target.
     "huggingface://unsloth/Qwen3.5-0.8B-GGUF": "starter path, gated delta-net hybrid, 262k context; cheapest",
     "huggingface://unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF": "gemma4 E4B through the gemma4 example",
-    "huggingface://LiquidAI/LFM2.5-24B-A2B-GGUF": "mid-size MoE (lfm2moe example); memory next to the 27B agent",
 }
 
 

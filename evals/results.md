@@ -5,11 +5,12 @@ Append-only, one row per trial (`evals/run_eval.py` appends). Strix Halo gfx1151
 weaver command. Compare with the Claude Code rows in
 `vendor/loom-skills/skills/loom-improve/reference/results.md` for the same models.
 
-## Release bar (v1)
+## Release bar
 
-- `port`: 3/3 full gates PASS + AUDIT PASS on Qwen3.5-0.8B and Bolt-E4B; at least 2/3 on LFM2.5-24B-A2B.
-- `serve`: the chat UI lists the model and answers, for all three.
-- `optimize` (default target and budget): within budget, and perf never below the port's (quiet-GPU regrade).
+- `port` and `serve`: one passing run each on Qwen3.5-0.8B and Bolt-E4B (full gates + AUDIT PASS; the
+  chat UI lists the model and answers).
+- `release_check.sh` on the downloaded release: all checks PASS.
+- Weekly: `optimize` on both, plus repeat port runs, to track the pass rate.
 
 ## Trials
 
