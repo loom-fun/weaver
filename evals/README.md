@@ -11,16 +11,17 @@ Does weaver work end to end with the local agent? Four tiers, cheapest first.
 
 ## Tier 3 plan
 
-Bolt-E4B (gemma4 E4B) is the largest model these evals use. Runs go on AMD DevLab Dispatch (#15),
-not a developer's machine.
+Bolt-E4B (gemma4 E4B) is the largest model these evals use. Every trial runs on AMD DevLab Dispatch
+(#15), never on a developer's machine. A job matrix runs the 3 trials of each cell in parallel, one
+runner each, so the release bar costs one trial's wall time (about 1.5 h for E4B), not 3x.
 
-| Model | Exercises | Every release | Weekly |
-|---|---|---|---|
-| `unsloth/Qwen3.5-0.8B-GGUF` | starter path, gated delta-net hybrid, 262k context; cheapest (~25 min) | port, serve | optimize |
-| `unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF` | gemma4 E4B via the gemma4 reference example (~1.5 h) | port, serve | optimize |
+| Model | Exercises | Release bar (3 parallel trials each) |
+|---|---|---|
+| `unsloth/Qwen3.5-0.8B-GGUF` | starter path, gated delta-net hybrid, 262k context; cheapest (~25 min) | port 3/3, serve 3/3 |
+| `unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF` | gemma4 E4B via the gemma4 reference example (~1.5 h) | port 3/3, serve 3/3 |
 
-A release needs one passing run of each "every release" cell. The weekly runs repeat them, so that
-over time `results.md` shows how often the agent passes, not only that it can.
+Three trials because the agent is nondeterministic: one pass shows that weaver can work, and 3/3 shows
+that it works reliably. `optimize` runs weekly on both models, in the same matrix.
 
 Grading is by outcome, not by path:
 - the `WEAVER_RESULT` line;

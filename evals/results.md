@@ -7,10 +7,11 @@ weaver command. Compare with the Claude Code rows in
 
 ## Release bar
 
-- `port` and `serve`: one passing run each on Qwen3.5-0.8B and Bolt-E4B (full gates + AUDIT PASS; the
-  chat UI lists the model and answers).
-- `release_check.sh` on the downloaded release: all checks PASS.
-- Weekly: `optimize` on both, plus repeat port runs, to track the pass rate.
+Run on DevLab Dispatch as a job matrix: 3 parallel trials per cell (#1, #15).
+- `port`: 3/3 full gates + AUDIT PASS on Qwen3.5-0.8B and Bolt-E4B.
+- `serve`: 3/3 on both (the chat UI lists the model and answers).
+- `release_check.sh` on the downloaded release: all checks PASS (#16).
+- Weekly: `optimize` on both models.
 
 ## Trials
 
