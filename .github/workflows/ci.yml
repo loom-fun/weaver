@@ -1,0 +1,33 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  tier0:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.LOOM_SKILLS_TOKEN || github.token }}   # loom-skills is private
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install '.[test]'
+      - run: pytest -q
+      - run: bash -n build/build_bundle.sh && sh -n build/stub.sh && bash -n evals/tier2_smoke.sh
+  bundle:
+    needs: tier0
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.LOOM_SKILLS_TOKEN || github.token }}
+      - run: build/build_bundle.sh
+      - run: evals/tier1_container.sh build/out/weaver-*-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weaver-linux-x64
+          path: build/out/weaver-*-linux-x64

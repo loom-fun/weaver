@@ -1,0 +1,3 @@
+[submodule "vendor/loom-skills"]
+	path = vendor/loom-skills
+	url = https://github.com/loom-fun/loom-skills.git
