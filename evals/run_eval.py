@@ -125,11 +125,18 @@ def regrade(row: dict) -> None:
         row["perf"] = json.loads(ev.read_text())
 
 
+def draft_text(d) -> str:
+    """The drafting method only (agents sometimes return the whole PORT_RESULT as `draft`)."""
+    if isinstance(d, dict) and "package" in d:
+        d = d.get("draft")
+    return json.dumps(d) if d else "none"
+
+
 def append_results(row: dict) -> None:
     f = HERE / "results.md"
     line = (f"| {row['date']} | {row['model'].split('://')[-1]} | {row['cmd']} #{row['trial']} | {row['outcome']} | "
             f"{row['wall_min']} | {row.get('gates')} / {row.get('audit')} | {row['tool_calls']} / {row['output_tokens']} | "
-            f"{json.dumps(row.get('draft')) if row.get('draft') else '-'} | {row.get('regrade', '-')} | {row.get('summary') or ''} |\n")
+            f"{draft_text(row.get('draft'))} | {row.get('regrade', '-')} | {row.get('summary') or ''} |\n")
     with open(f, "a") as fh:
         fh.write(line)
 

@@ -169,7 +169,7 @@ class Progress:
         if t == "message_update":
             d = (e.get("assistantMessageEvent") or {})
             self.streamed += len(d.get("delta") or "")
-            if time.time() - self.last_line > self.HEARTBEAT_S:
+            if self.streamed and time.time() - self.last_line > self.HEARTBEAT_S:
                 what = "thinking" if d.get("type", "").startswith("thinking") else "writing"
                 self.line(f"({what}: {self.streamed:,} characters so far)")
             return
