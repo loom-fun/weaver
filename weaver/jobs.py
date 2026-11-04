@@ -3,6 +3,7 @@ import json
 import math
 import subprocess
 import sys
+import time
 from importlib import resources
 from pathlib import Path
 
@@ -39,16 +40,54 @@ def log(msg: str) -> None:
     print(f"weaver: {msg}", file=sys.stderr, flush=True)
 
 
+MAX_CONTINUES = 3
+
+
+def continue_prompt(res: pi.TaskResult) -> str:
+    why = ("Your last reply hit the output limit while you were thinking. Think briefly, then act with a tool "
+           "call." if res.stop_reason == "length" else "You stopped without the WEAVER_RESULT line.")
+    return (f"{why} Continue the task from where you are (check phases.log and the files in the work dir), "
+            "and finish with the WEAVER_RESULT line as the last line of your final message.")
+
+
+def cleanup_servers(rt: Runtime, work: Path) -> None:
+    """Stop the servers a job left behind (an agent that died, hit a limit or forgot): every loom-serve
+    recorded in WORK/state and every llama-server in the shared llama.cpp state dir."""
+    import subprocess
+    st = work / "state"
+    for pid_file in sorted(st.glob("*.pid")) if st.is_dir() else []:
+        subprocess.run(["bash", str(rt.script("loom-setup/scripts/stop.sh")), pid_file.stem],
+                       env=rt.env(LOOM_SERVE_STATE=st), capture_output=True)
+    ll = paths.home() / "llstate"
+    for port_file in sorted(ll.glob("llamacpp-*.pid")) if ll.is_dir() else []:
+        port = port_file.stem.split("-", 1)[1]
+        subprocess.run(["bash", str(rt.script("loom-benchmark/scripts/llamacpp_server.sh")), "--stop", port],
+                       env=rt.env(), capture_output=True)
+
+
 def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: bool = False,
-              cont: bool = False, timeout_min: float | None = None) -> pi.TaskResult:
+              cont: bool = False, timeout_min: float | None = None, keep_servers: bool = False) -> pi.TaskResult:
+    """One agent task. A session that ends without WEAVER_RESULT (output limit, a lost thread) is
+    continued in place up to MAX_CONTINUES times; servers the job left running are stopped after."""
     agent_server.ensure_running(rt, cfg, log)
     model = agent_server.configure_pi(cfg)
     base = rt.env(WEAVER_AGENT_PORT=cfg.agent.port, WEAVER_WORK=work)
     log(f"agent session in {work} (log: {work / 'agent.jsonl'})")
-    res = pi.run_task(prompt, work, model=model, skills_dir=rt.skills, skills=AGENT_SKILLS,
-                      system_files=[prompt_file("rules.md")], agent_dir=paths.pi_dir(), base_env=base,
-                      thinking=cfg.agent.thinking, cont=cont, verbose=verbose,
-                      timeout_s=timeout_min * 60 if timeout_min else None)
+    deadline = time.time() + timeout_min * 60 if timeout_min else None
+    try:
+        for attempt in range(MAX_CONTINUES + 1):
+            left = deadline - time.time() if deadline else None
+            res = pi.run_task(prompt, work, model=model, skills_dir=rt.skills, skills=AGENT_SKILLS,
+                              system_files=[prompt_file("rules.md")], agent_dir=paths.pi_dir(), base_env=base,
+                              thinking=cfg.agent.thinking, cont=cont, verbose=verbose, timeout_s=left)
+            if res.result is not None or res.timed_out or attempt == MAX_CONTINUES:
+                break
+            log(f"no WEAVER_RESULT yet (stop: {res.stop_reason}); continuing the session "
+                f"({attempt + 1}/{MAX_CONTINUES})")
+            prompt, cont = continue_prompt(res), True
+    finally:
+        if not keep_servers:
+            cleanup_servers(rt, work)
     (work / "weaver_result.json").write_text(json.dumps(res.result or {}, indent=1))
     return res
 
@@ -81,7 +120,7 @@ def port(rt: Runtime, cfg: Config, ck: Checkpoint, *, force: bool = False, no_sp
     work = paths.work_dir(ck.slug)
     work.mkdir(parents=True, exist_ok=True)
     prompt = prompt_file("port.md").read_text().format(
-        spec=ck.spec, work=work, port=cfg.defaults.port_port,
+        spec=ck.spec, work=work, port=cfg.defaults.port_port, skills=rt.skills,
         memory_gib=target_budget_gib(cfg), spec_env="SPEC=off " if no_spec else "")
     res = run_agent(rt, cfg, work, prompt, verbose=verbose)
     rec = record_port(ck, res, "port")
@@ -142,7 +181,7 @@ def optimize(rt: Runtime, cfg: Config, ck: Checkpoint, target: str | None, budge
     work = paths.work_dir(ck.slug)
     log(f"optimizing {ck}: target = {target or 'roofline'}, budget = {minutes:.0f} min")
     prompt = prompt_file("optimize.md").read_text().format(
-        spec=ck.spec, package=rec["package"], gguf=rec.get("gguf"), work=work,
+        spec=ck.spec, skills=rt.skills, package=rec["package"], gguf=rec.get("gguf"), work=work,
         port=cfg.defaults.port_port, memory_bytes=rec.get("memory_bytes"),
         target=target_text(target), budget_min=round(minutes), budget_h=round(minutes / 60, 2))
     # Hard stop: the optimization budget plus time for finalize (full gates) and the report.

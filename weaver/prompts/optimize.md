@@ -1,6 +1,9 @@
 /skill:loom Optimize the existing Loom port of `{spec}`, keeping it correct, and report the results
 against llama.cpp ROCm.
 
+Skill scripts (absolute paths): `{skills}/loom-port-llm/port.sh`, `{skills}/loom-benchmark/scripts/` (qualify.sh,
+finalize.sh, gates.sh, perf.py), `{skills}/loom-setup/scripts/` (serve.sh, stop.sh), `{skills}/loom-optimize/`.
+
 - Package: `{package}`; GGUF: `{gguf}`; bench dir: `{work}/bench` (qualify has already run there).
 - Serve it on port {port} (`serve.sh port {port} amdgpu {memory_bytes} {package}/model.json`, with
   `LOOM_SERVE_STATE={work}/state`).

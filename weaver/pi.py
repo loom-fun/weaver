@@ -142,23 +142,39 @@ class TaskResult:
     log: Path
     seconds: float
     final_text: str
+    stop_reason: str | None = None
+    timed_out: bool = False
 
 
 class Progress:
     """One status line per agent step, from Pi's JSON events."""
 
+    HEARTBEAT_S = 60
+
     def __init__(self, out=sys.stderr, verbose: bool = False):
         self.out, self.verbose, self.t0 = out, verbose, time.time()
         self.tokens = 0
         self.tool_calls = 0
+        self.streamed = 0            # characters streamed in the current message
+        self.last_line = time.time()
 
     def line(self, text: str) -> None:
         m, s = divmod(int(time.time() - self.t0), 60)
         self.out.write(f"[{m:3d}:{s:02d}] {text}\n")
         self.out.flush()
+        self.last_line = time.time()
 
     def event(self, e: dict) -> None:
         t = e.get("type")
+        if t == "message_update":
+            d = (e.get("assistantMessageEvent") or {})
+            self.streamed += len(d.get("delta") or "")
+            if time.time() - self.last_line > self.HEARTBEAT_S:
+                what = "thinking" if d.get("type", "").startswith("thinking") else "writing"
+                self.line(f"({what}: {self.streamed:,} characters so far)")
+            return
+        if t == "message_start":
+            self.streamed = 0
         if t == "tool_execution_start":
             self.tool_calls += 1
             args = e.get("args") or {}
@@ -204,6 +220,8 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
     cmd.append(prompt)
     prog = Progress(verbose=verbose)
     final_text = ""
+    stop_reason = None
+    timed_out = False
     t0 = time.time()
     with open(log, "a") as lf, subprocess.Popen(cmd, cwd=work, env=env(agent_dir, base_env),
                                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -219,12 +237,14 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
                     continue
                 prog.event(e)
                 if e.get("type") == "message_end" and (e.get("message") or {}).get("role") == "assistant":
+                    stop_reason = e["message"].get("stopReason")
                     texts = [c.get("text", "") for c in e["message"].get("content") or [] if c.get("type") == "text"]
                     if any(t.strip() for t in texts):
                         final_text = "\n".join(texts)
                 if timeout_s and time.time() - t0 > timeout_s:
                     prog.line(f"time limit ({timeout_s / 60:.0f} min) reached: stopping the agent")
                     p.terminate()
+                    timed_out = True
                     break
         except KeyboardInterrupt:
             p.terminate()
@@ -232,7 +252,7 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
     result = parse_result(final_text)
     prog.line(f"agent finished: {prog.tool_calls} tool calls, {prog.tokens} output tokens")
     return TaskResult(ok=result is not None and p.returncode == 0, result=result, log=log,
-                      seconds=time.time() - t0, final_text=final_text)
+                      seconds=time.time() - t0, final_text=final_text, stop_reason=stop_reason, timed_out=timed_out)
 
 
 def launch(model: str, *, agent_dir: Path, base_env: dict, skills_dir: Path | None,

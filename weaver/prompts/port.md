@@ -1,5 +1,8 @@
 /skill:loom Get `{spec}` working on loom-serve and validate it against llama.cpp ROCm.
 
+Skill scripts (absolute paths): `{skills}/loom-port-llm/port.sh`, `{skills}/loom-benchmark/scripts/` (qualify.sh,
+finalize.sh, gates.sh, perf.py), `{skills}/loom-setup/scripts/` (serve.sh, stop.sh), `{skills}/loom-optimize/`.
+
 This is a **port with basic optimizations only**:
 1. `{spec_env}port.sh {spec} {work} {port} {memory_gib}`: the memory budget for this model is
    **{memory_gib} GiB**, after the agent's reservation. If it stops with exit 3 or for an architecture the

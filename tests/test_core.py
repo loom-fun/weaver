@@ -2,6 +2,7 @@
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -105,9 +106,9 @@ def test_config_roundtrip(home):
 
 
 def test_prompts_format():
-    p = jobs.prompt_file("port.md").read_text().format(spec="a/b", work="/w", port=8160, memory_gib=30, spec_env="")
+    p = jobs.prompt_file("port.md").read_text().format(spec="a/b", work="/w", port=8160, memory_gib=30, spec_env="", skills="/s")
     assert "port.sh a/b /w 8160 30" in p
-    jobs.prompt_file("optimize.md").read_text().format(spec="a/b", package="/p", gguf="/g", work="/w", port=1,
+    jobs.prompt_file("optimize.md").read_text().format(spec="a/b", skills="/s", package="/p", gguf="/g", work="/w", port=1,
                                                        memory_bytes=1, target="t", budget_min=1, budget_h=1)
     assert "WEAVER_RESULT" in jobs.prompt_file("rules.md").read_text()
 
@@ -174,3 +175,48 @@ def test_dependencies_cover_the_skills_tools_venv():
     line = next(l for l in script.splitlines() if ".tools/" in l and "pip install" in l)
     tools = {w.lower() for w in line.split("pip install", 1)[1].split() if not w.startswith("-")}
     assert tools <= deps, f"missing from pyproject dependencies: {sorted(tools - deps)}"
+
+
+def test_progress_heartbeat_during_long_thinking():
+    import io
+    out = io.StringIO()
+    p = pi.Progress(out=out)
+    p.last_line -= 120
+    p.event({"type": "message_update", "assistantMessageEvent": {"type": "thinking_delta", "delta": "x" * 50}})
+    assert "thinking: 50 characters" in out.getvalue()
+    p.event({"type": "message_update", "assistantMessageEvent": {"type": "thinking_delta", "delta": "y"}})
+    assert out.getvalue().count("\n") == 1    # rate-limited
+
+
+def test_run_agent_continues_after_output_limit(tmp_path, monkeypatch):
+    """A session that stops at the output limit is continued in place until it prints WEAVER_RESULT;
+    servers recorded in the job's state dir are stopped afterwards."""
+    fake = tmp_path / "pi"
+    fake.write_text(f"""#!{sys.executable}
+import json, os, sys
+open(os.path.join(os.environ["WEAVER_WORK"], "calls.txt"), "a").write(" ".join(sys.argv[1:]) + "\\n")
+cont = "--continue" in sys.argv
+text = 'done\\nWEAVER_RESULT {{"status": "ok", "gates": "PASS"}}' if cont else ""
+print(json.dumps({{"type": "message_end", "message": {{"role": "assistant", "stopReason": "stop" if cont else "length",
+                                                    "content": [{{"type": "text", "text": text}}]}}}}))
+""")
+    fake.chmod(0o755)
+    monkeypatch.setenv("WEAVER_PI", str(fake))
+    from weaver import agent_server
+    monkeypatch.setattr(agent_server, "ensure_running", lambda *a, **k: 8079)
+    monkeypatch.setattr(agent_server, "configure_pi", lambda *a, **k: "weaver-local/x")
+    stopped = []
+    monkeypatch.setattr(jobs, "cleanup_servers", lambda rt, work: stopped.append(work))
+
+    class RT:
+        skills = tmp_path
+
+        def env(self, **kw):
+            return {**os.environ, **{k: str(v) for k, v in kw.items()}}
+
+    work = tmp_path / "work"
+    res = jobs.run_agent(RT(), config.Config(), work, "task")
+    assert res.result == {"status": "ok", "gates": "PASS"}
+    calls = (work / "calls.txt").read_text().splitlines()
+    assert len(calls) == 2 and "--continue" in calls[1] and "output limit" in calls[1]
+    assert stopped == [work]
