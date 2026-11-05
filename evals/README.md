@@ -18,7 +18,7 @@ runner each, so the release bar costs one trial's wall time (about 1.5 h for E4B
 | Model | Exercises | Release bar (3 parallel trials each) |
 |---|---|---|
 | `unsloth/Qwen3.5-0.8B-GGUF` | starter path, gated delta-net hybrid, 262k context; cheapest (~25 min) | port 3/3, serve 3/3 |
-| `unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF` | gemma4 E4B via the gemma4 reference example (~1.5 h) | port 3/3, serve 3/3 |
+| `nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB` | gemma4 E4B via the gemma4 reference example (~1.5 h) | port 3/3, serve 3/3 |
 
 Three trials because the agent is nondeterministic: one pass shows that weaver can work, and 3/3 shows
 that it works reliably. `optimize` runs weekly on both models, in the same matrix.

@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MODELS: unsloth/Qwen3.5-0.8B-GGUF,unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF
+  MODELS: unsloth/Qwen3.5-0.8B-GGUF,nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB
 
 jobs:
   build:
@@ -75,11 +75,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        model: [unsloth/Qwen3.5-0.8B-GGUF, unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF]
+        model: [unsloth/Qwen3.5-0.8B-GGUF, nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB]
         cmd: [port, serve]
         trial: [1, 2, 3]
     runs-on: [strix-halo, devlab-dispatch, Linux, self-hosted]
-    timeout-minutes: 240
+    timeout-minutes: 330
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:

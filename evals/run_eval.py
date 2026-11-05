@@ -32,7 +32,7 @@ SKILLS = REPO / "vendor" / "loom-skills" / "skills"
 
 SUITE = {   # model -> what it exercises. Bolt-E4B is the largest model weaver evals target.
     "huggingface://unsloth/Qwen3.5-0.8B-GGUF": "starter path, gated delta-net hybrid, 262k context; cheapest",
-    "huggingface://unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF": "gemma4 E4B through the gemma4 example",
+    "huggingface://nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB": "gemma4 E4B through the gemma4 example",
 }
 
 
