@@ -106,6 +106,7 @@ jobs:
             n=out/$(basename "$d"); mkdir -p "$n"
             cp "$d"/eval.json "$d"/weaver.log "$n"/ 2>/dev/null || true
             cp "$d"/work/*/phases.log "$d"/work/*/bench/report.md "$d"/work/*/bench/gates.json "$n"/ 2>/dev/null || true
+            cp "$d"/state/weaver-agent.log "$n"/agent-server.log 2>/dev/null || true   # the agent model's loom-serve
           done
       - if: always()
         uses: actions/upload-artifact@v4

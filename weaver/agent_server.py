@@ -48,6 +48,8 @@ def configure_pi(cfg: Config, agent_dir=None, force_default: bool = True) -> str
         entry = pi.status_entry(st, cfg.agent.model_id)
     except ValueError:
         entry = pi.model_entry(cfg.agent.model_id, "Qwen3.8 27B (Loom, MTP)", 262144, 16384, True)
+    entry["contextWindow"] = min(entry["contextWindow"], cfg.agent.context_window)
+    entry["maxTokens"] = min(entry["maxTokens"], cfg.agent.max_tokens)
     entry["name"] = "Qwen3.8 27B (Loom, MTP, weaver)"
     entry["input"] = ["text"]   # the agent card is served without the vision projector
     prov = pi.provider("weaver (local agent)", f"http://127.0.0.1:{cfg.agent.port}/v1", [entry])

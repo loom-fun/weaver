@@ -294,3 +294,14 @@ def test_verdict_requires_n_passes_per_cell(tmp_path):
     assert r.returncode == 1 and "2/3" in r.stdout and "3/3" in r.stdout
     assert run("--trials", "2", "--models", "a/b", "--cmds", "port,serve").returncode == 0
     assert run("--trials", "1", "--models", "a/b,c/d", "--cmds", "port").returncode == 1   # missing model
+
+
+def test_agent_context_is_bounded_for_compaction(home, monkeypatch):
+    """Pi compacts relative to the advertised window: the agent's must fit the KV pool, not the model's 262k."""
+    from weaver import agent_server, servers
+    st = {"data": [{"id": "qwen3.8-27b", "reasoning": True, "context_length": 262144, "limits": {"max_output_tokens": 16384}}]}
+    monkeypatch.setattr(servers, "status", lambda port, timeout=3: st)
+    cfg = config.Config()
+    agent_server.configure_pi(cfg)
+    m = json.loads((home / "pi" / "models.json").read_text())["providers"][pi.LOCAL_PROVIDER]["models"][0]
+    assert m["contextWindow"] == cfg.agent.context_window == 65536 and m["maxTokens"] == 8192

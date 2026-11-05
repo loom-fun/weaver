@@ -19,6 +19,13 @@ class AgentConfig:
     # 100,130-token prompt correctly (M0) and leaves 43.8 GiB of the 60 % budget to the model being ported.
     memory_bytes: int = 32_000_000_000
     thinking: str = "medium"   # Pi thinking level for weaver's own sessions
+    # What Pi is told about the agent model. Pi compacts at contextWindow - 16k, so this bounds every
+    # prompt; it must fit the KV pool memory_bytes leaves (32 GB served a 100k-token prompt). With the
+    # model's own 262k, long gemma4 E4B sessions on DevLab grew past the pool (HTTP 503 "insufficient
+    # completion capacity" after 313 tool calls) or into 6-min timeouts on uncached prefills. At 64k Pi
+    # compacts near 48k: an uncached prefill takes ~3 min.
+    context_window: int = 65536
+    max_tokens: int = 8192
 
 
 @dataclass
