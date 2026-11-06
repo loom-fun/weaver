@@ -57,10 +57,12 @@ PHASES = {
                       None, None,
                       "change one thing · rebuild · measure · re-check · keep or undo; until the target or the budget"),
     "finalize": Phase("finalize", "Final check",
-                      "every correctness check, up to the full context; final speeds; the report",
+                      "final speeds; re-check its answers on the final build; the report",
                       "finalize.log", "finalize.sh",
-                      "final speeds · every correctness check (the full-context one takes most of the time) · "
-                      "audit · report"),
+                      "final speeds · re-check answers on the final build · audit · report"),
+    "validate": Phase("validate", "Validate", "prove the whole context length is served",
+                      "validate.log", None,
+                      "load the model · find a fact hidden at the end of a full-length prompt"),
 }
 
 # Script step label (lower-case keyword) -> (step key, what to call it). First match wins.
@@ -80,9 +82,11 @@ STEPS = {
                 ("roofline", "roofline", "Work out the hardware's speed limit for this model"),
                 ("loom baseline", "loom", "Measure Loom's speed")],
     "finalize": [("perf", "perf", "Measure final speeds: llama.cpp, then Loom"),
-                 ("gates", "gates", "Run every correctness check, up to the full context length"),
+                 ("gates", "gates", "Re-check its answers on the final build"),
                  ("audit", "audit", "Confirm every requirement is met"),
                  ("report", "report", "Write the benchmark report")],
+    "validate": [("load", "load", "Load the model"),
+                 ("probe", "probe", "Find a fact hidden at the end of a full-length prompt")],
 }
 
 # gates.sh prints "== <gate>" before each check.
@@ -105,7 +109,10 @@ PRIORS = {
     ("port", "build"): 14, ("port", "serve"): 2, ("port", "ktest"): 20, ("port", "smoke"): 96,
     ("qualify", "spec"): 296, ("qualify", "pick"): 83, ("qualify", "llama"): 238, ("qualify", "gates"): 580,
     ("qualify", "roofline"): 21, ("qualify", "loom"): 122,
-    ("finalize", "perf"): 292, ("finalize", "gates"): 1412, ("finalize", "audit"): 5, ("finalize", "report"): 5,
+    ("finalize", "perf"): 292, ("finalize", "gates"): 300, ("finalize", "audit"): 5, ("finalize", "report"): 5,
+    # the final gates without the full-context probe: re-used when the build is unchanged (a port), else
+    # about qualify's gates; the probe itself (weaver validate) took 1,412 s of the same 4B run
+    ("validate", "load"): 60, ("validate", "probe"): 1412,
 }
 AGENT_OVERHEAD_S = 60     # the agent reading results and deciding, per phase
 OPTIONAL_STEPS = {("port", "vision"), ("port", "drafter")}
@@ -407,6 +414,14 @@ class JobProgress:
         mark = self.d.green("✓") if ok else self.d.red("✗")
         self.d.print(f"{self.stamp()}     {mark} {title} {self.d.dim(fmt_dur(secs))}")
         self.step, self.check = None, None
+
+    def begin_step(self, phase: str, label: str) -> None:
+        with self.lock:
+            self._begin_step(phase, label)
+
+    def end_step(self, ok: bool = True) -> None:
+        with self.lock:
+            self._end_step(ok)
 
     def _begin_step(self, phase: str, label: str) -> None:
         self._end_step()

@@ -59,12 +59,12 @@ def test_replay_checks_off_every_step(tmp_path, monkeypatch):
     for title in ["Download the model", "Generate and compile the GPU kernels", "Test every GPU kernel",
                   "First answer and tool call", "Pick the fastest speculative decoding setup",
                   "Measure llama.cpp's speed", "Check its answers against llama.cpp", "Measure Loom's speed",
-                  "Run every correctness check, up to the full context length", "Write the benchmark report"]:
+                  "Re-check its answers on the final build", "Write the benchmark report"]:
         assert f"✓ {title}" in text, title
     for phase in ["Convert done", "Verify done", "Final check done"]:
         assert phase in text
     # the long full-context check gets "still on" lines naming the check, with time left
-    assert "still on “Run every correctness check" in text and "full context length, the slowest check" in text
+    assert "still on “Re-check its answers on the final build" in text and "full context length, the slowest check" in text
     assert "agent: Port succeeded" in text
     assert "WEAVER_RESULT" not in text and "bash:" not in text and "thinking:" not in text
     assert all(s.status == "done" for s in p.states)

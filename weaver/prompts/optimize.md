@@ -14,7 +14,9 @@ finalize.sh, gates.sh, perf.py), `{skills}/loom-setup/scripts/` (serve.sh, stop.
 - **Time budget for the optimization phase:** {budget_min} minutes (`BUDGET_H={budget_h}`). Act on
   the verdicts `perf.py` prints (CONTINUE / REVIEW / BUDGET / DONE). At BUDGET, revert to the last kept
   build.
-- After each kept change: rebuild, restart, `perf.py`, and `LEVEL=fast gates.sh`.
-- Finish with `finalize.sh` on the best build. AUDIT must PASS.
+- After each kept change: rebuild, restart, `perf.py`, and the gates at the level `loom-optimize`
+  prescribes for a kept change.
+- Finish with `NEEDLE_FULL=0 finalize.sh` on the best build. AUDIT must PASS. The full-context needle
+  probe is deferred on purpose: weaver runs it separately (`weaver validate`), so its audit WARN is expected.
 
 Stop the model's server when you are done. `port` in WEAVER_RESULT is then null.

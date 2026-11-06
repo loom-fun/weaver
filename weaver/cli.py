@@ -48,6 +48,11 @@ def _parser() -> argparse.ArgumentParser:
                    help="roofline (default), beat-llamacpp, or e.g. 'decode+30%%'")
     s.add_argument("budget", nargs="?", metavar="BUDGET", help="e.g. 90m or 3h (default: 30 min x agent slowdown)")
 
+    s = sub.add_parser("validate", help="the full-context check on a finished port (port/optimize skip it: "
+                       "it is slow and rarely finds anything)")
+    s.add_argument("checkpoint", metavar="CHECKPOINT")
+    s.add_argument("--keep-agent", action="store_true", help="keep the agent server running")
+
     s = sub.add_parser("upload", help="publish a ported checkpoint's Loom package and model card to a HF org")
     s.add_argument("checkpoint", metavar="CHECKPOINT")
     s.add_argument("org", metavar="HF-ORG")
@@ -170,6 +175,9 @@ def main(argv: list[str] | None = None) -> int:
             from weaver import jobs
             rec = jobs.optimize(rt, cfg, parse_ck(a.checkpoint), a.target, a.budget, no_spec=a.no_spec, verbose=a.verbose)
             return 0 if rec.get("audit") == "PASS" else 1
+        if a.cmd == "validate":
+            from weaver.commands import validate
+            return validate.run(rt, cfg, parse_ck(a.checkpoint), keep_agent=a.keep_agent, verbose=a.verbose)
         if a.cmd == "upload":
             from weaver.commands import upload
             return upload.run(rt, cfg, parse_ck(a.checkpoint), a.org, yes=a.yes, private=a.private, verbose=a.verbose)

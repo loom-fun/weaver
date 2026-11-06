@@ -153,8 +153,9 @@ def new_progress(rt: Runtime, title: str, phases: list[str], work: Path, *, verb
 
 
 FINISH_FINALIZE = """3. **Skip the optimization loop.** Go straight to
-   `finalize.sh {work}/pkg http://127.0.0.1:{port} <gguf> {work}/bench`, and fix any gate failure it
-   reports before finishing."""
+   `NEEDLE_FULL=0 finalize.sh {work}/pkg http://127.0.0.1:{port} <gguf> {work}/bench`, and fix any gate
+   failure it reports before finishing. The full-context needle probe is deferred on purpose: weaver runs
+   it separately (`weaver validate`), so its audit WARN is expected."""
 FINISH_FOR_OPTIMIZE = """3. **Stop after qualify.** Don't optimize and don't run finalize.sh: weaver runs the optimization
    next, in a new session, and that one ends with finalize.sh. Put qualify's gates verdict in `gates`
    (fix a failing gate first), `"audit": "NOT_RUN"` and `"report": null`."""
@@ -248,6 +249,11 @@ def summarize(progress, ck: Checkpoint, rec: dict, res: pi.TaskResult, kind: str
     if ok:
         nxt = f"weaver serve {ck}" + ("" if kind == "optimize" else f"   or   weaver optimize {ck}")
         d.print(f"  next      {d.cyan(nxt)}")
+        from weaver.progress import Timings, fmt_about
+        est = Timings().estimate("validate", "probe", progress.gb())
+        d.print(f"  {d.dim('not run:')} the full-context check (one prompt as long as the whole context). It is slow"
+                f"{' (' + fmt_about(est) + ')' if est else ''} and rarely finds anything; "
+                f"`weaver validate {ck}` runs it, e.g. before you upload")
     else:
         d.print(f"  details   {_tilde(paths.work_dir(ck.slug))} (agent log: agent.jsonl). "
                 f"`weaver resume {ck}` lets the agent keep going.")

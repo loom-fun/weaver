@@ -130,6 +130,10 @@ def run(rt: Runtime, cfg: Config, ck: Checkpoint, org: str, *, yes: bool = False
     rec = registry.passing(ck.slug)
     if not rec:
         raise SystemExit(f"{ck} has no passing port: run `weaver port {ck}` first")
+    if rec.get("validated") != "PASS":
+        print(f"note: the full-context check hasn't passed on this port, so the card will show it as "
+              f"'no evidence'. `weaver validate {ck}` runs it (it is slow: one prompt as long as the whole "
+              "context).", file=sys.stderr)
     user = check_write_access(org)
     repo_id = repo_name(ck, org)
     work = paths.work_dir(ck.slug)
