@@ -4,7 +4,8 @@ name: port-check
 # time estimates and the closing summary are what this job's log shows.
 #   build  (GitHub-hosted)  the release tarball + install.sh
 #   port   (DevLab)         install.sh, weaver init, weaver skills, then `weaver optimize MODEL roofline 20m`:
-#                           all four tasks (Convert, Verify, Speed up, Final check) on a model that isn't ported yet
+#                           all four tasks (Convert, Verify, Speed up, Final check) on a model that isn't ported yet,
+#                           then `weaver validate MODEL` (the full-context check, which port/optimize skip)
 # Runs on pull requests that change weaver's own code or prompts, and on demand (any model).
 on:
   pull_request:
@@ -70,11 +71,13 @@ jobs:
         run: weaver skills
       - name: weaver optimize ${{ env.MODEL }} roofline ${{ env.BUDGET }}
         run: weaver optimize "$MODEL" roofline "$BUDGET"
+      - name: weaver validate ${{ env.MODEL }} (the full-context check, on its own)
+        run: weaver validate "$MODEL"
       - if: always()
         name: collect
         run: |
           d=$WEAVER_HOME/work/$(echo "$MODEL" | sed 's#/#__#'); mkdir -p out
-          cp "$d"/phases.log "$d"/*.log "$d"/agent.jsonl "$d"/bench/report.md out/ 2>/dev/null || true
+          cp "$d"/phases.log "$d"/*.log "$d"/bench/gates.json "$d"/agent.jsonl "$d"/bench/report.md out/ 2>/dev/null || true
           cp "$WEAVER_HOME"/timings.jsonl out/ 2>/dev/null || true
       - if: always()
         uses: actions/upload-artifact@v4
