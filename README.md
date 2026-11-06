@@ -10,6 +10,8 @@ weaver serve huggingface://unsloth/Qwen3.5-0.8B-GGUF      # port it, validate it
 
 The installer offers to run `weaver init` (fetch and start the local agent model) at the end.
 
+![weaver installer: a loom weaves in the corner while it downloads](docs/install.gif)
+
 weaver runs the [loom skills](https://github.com/loom-fun/loom-skills) with a **local** coding agent:
 [Pi](https://github.com/earendil-works/pi) driving Qwen3.8-27B
 ([loom-fun/bartowski-Qwen3.8-27B-loom](https://huggingface.co/loom-fun/bartowski-Qwen3.8-27B-loom): Q4_K_M,

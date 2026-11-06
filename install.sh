@@ -297,7 +297,8 @@ if ! on_path "$bindir"; then
     if ! grep -qsF "$line" "$rc"; then printf '\n# weaver\n%s\n' "$line" >> "$rc"; fi
     ok "added $(tilde "$bindir") to PATH in $(tilde "$rc")"
   fi
-  path_note="export PATH=\"$bindir:\$PATH\""
+  case "$bindir" in "$HOME"/*) shown="\$HOME/${bindir#"$HOME"/}" ;; *) shown="$bindir" ;; esac
+  path_note="export PATH=\"$shown:\$PATH\""
 fi
 
 # ---- init ----------------------------------------------------------------------------------------
