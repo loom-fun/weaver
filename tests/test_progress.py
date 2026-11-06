@@ -121,4 +121,4 @@ def test_speed_up_shows_each_change_and_the_best_so_far(tmp_path, monkeypatch):
     assert "✓ kept int8 matvec: decode 63 tok/s (+9% vs the start)" in text
     assert "· not kept bigger tiles: decode 57 tok/s (-2% vs the start)" in text
     assert "measured the starting point again: decode 54 tok/s" in text and "kept loom-start" not in text
-    assert p.speedup_text() == "decode 63 tok/s (+9%), target 75, 2 changes tried"
+    assert p.speedup_text() == "decode 63 tok/s (+9%), target 75; 2 changes tried, 1 kept"

@@ -44,7 +44,8 @@ def run(skip_llamacpp: bool = False) -> int:
     res = pi.run_task("Read note.txt, then run `echo $((6*7))` in bash. End with exactly this line, filling "
                       "in the marker number and the bash output: WEAVER_RESULT {\"marker\": <n>, \"bash\": <n>}",
                       work, model=ref, skills_dir=rt.skills, skills=[], system_files=[],
-                      agent_dir=paths.pi_dir(), base_env=rt.env(), thinking="low", timeout_s=600)
+                      agent_dir=paths.pi_dir(), base_env=rt.env(), thinking="low", timeout_s=600,
+                      progress=pi.Quiet(log))
     r = res.result or {}
     if r.get("marker") != 4217 or r.get("bash") != 42:
         log(f"the agent could not complete the tool check. Its last words: {res.final_text[-300:]!r} (log: {res.log})")

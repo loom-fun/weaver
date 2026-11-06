@@ -149,6 +149,7 @@ class TaskResult:
     final_text: str
     stop_reason: str | None = None
     timed_out: bool = False
+    stopped_at_deadline: bool = False     # stop_at passed: stopped between tool calls (run_task)
 
 
 class Progress:
@@ -198,6 +199,24 @@ class Progress:
                     self.line(f"error: {m['errorMessage']}")
 
 
+class Quiet:
+    """No step lines (a short check the caller reports on itself); only problems are printed."""
+
+    def __init__(self, log=print):
+        self.log, self.tool_calls = log, 0
+
+    def event(self, e: dict) -> None:
+        if e.get("type") == "tool_execution_start":
+            self.tool_calls += 1
+        m = e.get("message") or {}
+        if e.get("type") == "message_end" and m.get("errorMessage"):
+            self.log(f"  agent error: {m['errorMessage']}")
+
+    def line(self, text: str) -> None:
+        if text.startswith(("time limit", "error")):
+            self.log(f"  {text}")
+
+
 def parse_result(text: str) -> dict | None:
     found = RESULT_RE.findall(text or "")
     if not found:
@@ -211,8 +230,11 @@ def parse_result(text: str) -> dict | None:
 def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: list[str],
              system_files: list[Path], agent_dir: Path, base_env: dict, thinking: str = "medium",
              cont: bool = False, verbose: bool = False, timeout_s: float | None = None,
-             progress=None) -> TaskResult:
-    """progress: anything with event(e) and line(text) (weaver.progress.JobProgress); default: a line per step."""
+             progress=None, stop_at: float | None = None) -> TaskResult:
+    """progress: anything with event(e) and line(text) (weaver.progress.JobProgress); default: a line per step.
+    stop_at: an epoch time after which the session is stopped at the next safe point, i.e. while no tool
+    is running (never in the middle of a measurement or a build), so the caller can continue it with new
+    instructions."""
     pi_bin = binary()
     if not pi_bin:
         raise RuntimeError("Pi is not installed: run `weaver init`")
@@ -229,6 +251,8 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
     final_text = ""
     stop_reason = None
     timed_out = False
+    at_deadline = False
+    tools_running = 0
     t0 = time.time()
     with open(log, "a") as lf, subprocess.Popen(cmd, cwd=work, env=env(agent_dir, base_env),
                                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -243,6 +267,14 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
                         prog.line(raw.rstrip()[:200])
                     continue
                 prog.event(e)
+                if e.get("type") == "tool_execution_start":
+                    tools_running += 1
+                elif e.get("type") == "tool_execution_end":
+                    tools_running = max(0, tools_running - 1)
+                if stop_at and time.time() > stop_at and tools_running == 0:
+                    p.terminate()
+                    at_deadline = True
+                    break
                 if e.get("type") == "message_end" and (e.get("message") or {}).get("role") == "assistant":
                     stop_reason = e["message"].get("stopReason")
                     texts = [c.get("text", "") for c in e["message"].get("content") or [] if c.get("type") == "text"]
@@ -259,7 +291,8 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
     result = parse_result(final_text)
     prog.line(f"agent finished: {getattr(prog, 'tool_calls', 0)} tool calls")
     return TaskResult(ok=result is not None and p.returncode == 0, result=result, log=log,
-                      seconds=time.time() - t0, final_text=final_text, stop_reason=stop_reason, timed_out=timed_out)
+                      seconds=time.time() - t0, final_text=final_text, stop_reason=stop_reason, timed_out=timed_out,
+                      stopped_at_deadline=at_deadline)
 
 
 def launch(model: str, *, agent_dir: Path, base_env: dict, skills_dir: Path | None,

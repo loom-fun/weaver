@@ -209,7 +209,7 @@ print(json.dumps({{"type": "message_end", "message": {{"role": "assistant", "sto
     monkeypatch.setattr(agent_server, "ensure_running", lambda *a, **k: 8079)
     monkeypatch.setattr(agent_server, "configure_pi", lambda *a, **k: "weaver-local/x")
     stopped = []
-    monkeypatch.setattr(jobs, "cleanup_servers", lambda rt, work: stopped.append(work))
+    monkeypatch.setattr(jobs, "cleanup_servers", lambda rt, work, port=None: stopped.append(work))
 
     class RT:
         skills = tmp_path
@@ -307,3 +307,43 @@ def test_agent_context_is_bounded_for_compaction(home, monkeypatch):
     agent_server.configure_pi(cfg)
     m = json.loads((home / "pi" / "models.json").read_text())["providers"][pi.LOCAL_PROVIDER]["models"][0]
     assert m["contextWindow"] == cfg.agent.context_window == 65536 and m["maxTokens"] == 8192
+
+
+def test_run_agent_enforces_a_time_budget_between_tool_calls(tmp_path, monkeypatch):
+    """Past stop_at, the session is stopped once no tool is running (never mid-measurement) and continued
+    with the wrap-up instructions; the wrap-up doesn't count as one of the output-limit continues."""
+    fake = tmp_path / "pi"
+    fake.write_text(f"""#!{sys.executable}
+import json, os, sys, time
+open(os.path.join(os.environ["WEAVER_WORK"], "calls.txt"), "a").write(" ".join(sys.argv[1:]) + "\\n")
+if "--continue" in sys.argv:
+    print(json.dumps({{"type": "message_end", "message": {{"role": "assistant", "stopReason": "stop",
+          "content": [{{"type": "text", "text": 'WEAVER_RESULT {{"status": "ok"}}'}}]}}}}), flush=True)
+else:
+    print(json.dumps({{"type": "tool_execution_start", "args": {{"command": "perf.py"}}}}), flush=True)
+    open(os.path.join(os.environ["WEAVER_WORK"], "mid_tool.txt"), "w").write("still running")
+    print(json.dumps({{"type": "tool_execution_end", "result": {{}}}}), flush=True)
+    time.sleep(30)          # the agent would think on: weaver must stop it here
+""")
+    fake.chmod(0o755)
+    monkeypatch.setenv("WEAVER_PI", str(fake))
+    from weaver import agent_server
+    monkeypatch.setattr(agent_server, "ensure_running", lambda *a, **k: 8079)
+    monkeypatch.setattr(agent_server, "configure_pi", lambda *a, **k: "weaver-local/x")
+    monkeypatch.setattr(jobs, "cleanup_servers", lambda rt, work, port=None: None)
+
+    class RT:
+        skills = tmp_path
+
+        def env(self, **kw):
+            return {**os.environ, **{k: str(v) for k, v in kw.items()}}
+
+    import time
+    work = tmp_path / "work"
+    t0 = time.time()
+    res = jobs.run_agent(RT(), config.Config(), work, "optimize", stop_at=time.time() - 1, wrap_up="budget is used up")
+    assert time.time() - t0 < 20                                   # stopped, not waited out
+    assert res.result == {"status": "ok"}
+    calls = (work / "calls.txt").read_text().splitlines()
+    assert len(calls) == 2 and "--continue" in calls[1] and "budget is used up" in calls[1]
+    assert (work / "mid_tool.txt").exists()                        # the running tool was allowed to finish

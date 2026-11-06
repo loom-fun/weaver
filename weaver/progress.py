@@ -132,6 +132,15 @@ def step_of(phase: str, label: str) -> tuple[str, str]:
 
 # ---- durations ------------------------------------------------------------------------------------
 
+def clip(text: str, n: int) -> str:
+    """At most n characters, cut at a word boundary."""
+    text = " ".join(text.split())
+    if len(text) <= n:
+        return text
+    cut = text[:n - 1].rsplit(" ", 1)[0]
+    return cut.rstrip(",;:") + "…"
+
+
 def fmt_clock(s: float) -> str:
     s = int(s)
     h, r = divmod(s, 3600)
@@ -298,6 +307,8 @@ class JobProgress:
         self.best: dict[str, float] = {}      # optimize: the best kept value so far
         self.goal: dict[str, float] = {}      # optimize: the roofline target per metric
         self.tries = 0
+        self.kept = 0
+        self.reused = 0                       # gates "PASSED earlier on this exact build" in the current step
 
     # -- helpers
     expected_gb: float | None = None     # the GGUF's size from Hugging Face, before it is downloaded
@@ -329,8 +340,9 @@ class JobProgress:
                 left += self.phase_estimate(s)
             elif s.status == "active":
                 if s.budget_s:
-                    left += max(0.0, s.start + s.budget_s + AGENT_OVERHEAD_S - tn)
+                    left += max(AGENT_OVERHEAD_S, s.start + s.budget_s + AGENT_OVERHEAD_S - tn)
                     continue
+                left += AGENT_OVERHEAD_S / 2          # the agent reads the result and moves on
                 done = {k for k, _ in s.steps_done}
                 cur = self.step[0] if self.step else None
                 for _, k, _ in STEPS.get(s.phase.key, []):
@@ -414,8 +426,10 @@ class JobProgress:
             if ok:
                 self.timings.record(s.phase.key, key, secs, self.gb())
         mark = self.d.green("✓") if ok else self.d.red("✗")
-        self.d.print(f"{self.stamp()}     {mark} {title} {self.d.dim(fmt_dur(secs))}")
-        self.step, self.check = None, None
+        why = (f" (all {self.reused} checks already passed on this exact build)"
+               if ok and self.reused and secs < 60 and key == "gates" else "")
+        self.d.print(f"{self.stamp()}     {mark} {title} {self.d.dim(fmt_dur(secs) + why)}")
+        self.step, self.check, self.reused = None, None, 0
 
     def begin_step(self, phase: str, label: str) -> None:
         with self.lock:
@@ -496,7 +510,7 @@ class JobProgress:
                                  if x.strip() and not x.startswith("WEAVER_RESULT")]
                         if lines:
                             self.agent_note = lines[0].strip()
-                            shown = "\n".join(lines) if self.verbose else lines[0][:160]
+                            shown = "\n".join(lines) if self.verbose else clip(lines[0], 160)
                             self.d.print(f"{self.stamp()}   {self.d.dim('agent: ' + shown)}")
                 if m.get("errorMessage"):
                     self.d.print(f"{self.stamp()}   {self.d.yellow('!')} agent error: {m['errorMessage']}")
@@ -548,10 +562,14 @@ class JobProgress:
             g = groups.setdefault((r.get("ts"), r.get("change")), {"kept": bool(r.get("kept")), "m": {}})
             g["m"][m] = v
         s = self.active()
+        in_loop = bool(s and s.phase.key == "optimize")
         for (_, change), g in groups.items():
+            if not in_loop:
+                continue                      # Final check's measurements are not changes
             remeasure = "start" in str(change).lower() or "baseline" in str(change).lower()
             if not remeasure:
                 self.tries += 1
+                self.kept += bool(g["kept"])
             parts = []
             for m, (name, unit) in self.METRICS.items():
                 v = g["m"].get(m)
@@ -581,8 +599,11 @@ class JobProgress:
         if not b or not best:
             return ""
         goal = self.goal.get("decode_tps")
+        tried = f"{self.tries} change{'s' if self.tries != 1 else ''} tried, {self.kept} kept"
+        if not self.kept:
+            return f"decode {b:,.0f} tok/s" + (f" (target {goal:,.0f})" if goal else "") + f"; {tried}"
         return (f"decode {best:,.0f} tok/s ({(best / b - 1) * 100:+.0f}%)" + (f", target {goal:,.0f}" if goal else "")
-                + f", {self.tries} change{'s' if self.tries != 1 else ''} tried")
+                + f"; {tried}")
 
     def _poll_logs(self) -> None:
         self._poll_targets()
@@ -605,6 +626,8 @@ class JobProgress:
                     self._begin_step(key, m.group(2))
                     continue
                 m = GATE_RE.match(line)
+                if m and m.group(1) in GATES and m.group(2) and "PASSED earlier" in m.group(2):
+                    self.reused += 1
                 if m and m.group(1) in GATES and not m.group(2):   # "golden: PASSED earlier" is a re-use
                     self.check = GATES[m.group(1)]
 
@@ -619,9 +642,11 @@ class JobProgress:
         if s.budget_s:
             used = tn - s.start
             best = self.speedup_text()
+            if used > s.budget_s:
+                return f"{spin} {s.phase.title}: budget used up, wrapping up" + (f" · {best}" if best else "") + tail
             return (f"{spin} {s.phase.title}: {fmt_dur(used)} of the {fmt_dur(s.budget_s)} budget"
                     + (f" · best so far: {best}" if best else "")
-                    + (d.dim(f" · {self.agent_note[:50]}") if self.agent_note else "") + tail)
+                    + (d.dim(f" · {clip(self.agent_note, 50)}") if self.agent_note else "") + tail)
         if self.step:
             key, title, t = self.step
             est = self.timings.estimate(s.phase.key, key, self.gb())
@@ -629,7 +654,7 @@ class JobProgress:
             pct = f" · {min(95, int(100 * ran / est))}%" if est else ""
             check = d.dim(f" · {self.check}") if self.check else ""
             return f"{spin} {s.phase.title} › {title}{check} {d.dim(fmt_dur(ran) + pct)}{tail}"
-        what = f"agent: {self.agent_note[:70]}" if self.agent_note else "the agent is deciding the next step"
+        what = f"agent: {clip(self.agent_note, 70)}" if self.agent_note else "the agent is deciding the next step"
         return f"{spin} {s.phase.title} › {d.dim(what)}{tail}"
 
     def heartbeat(self) -> str:
@@ -637,9 +662,12 @@ class JobProgress:
         tn = now()
         if s and s.budget_s:
             best = self.speedup_text()
+            if tn - s.start > s.budget_s:
+                return (f"{s.phase.title}: the {fmt_dur(s.budget_s)} budget is used up; the agent is keeping the best "
+                        f"build and moving on to the final check" + (f" ({best})" if best else ""))
             return (f"{s.phase.title}: {fmt_dur(tn - s.start)} of the {fmt_dur(s.budget_s)} budget used"
                     + (f"; best so far: {best}" if best else "; no change measured yet")
-                    + (f". Agent: {self.agent_note[:100]}" if self.agent_note else ""))
+                    + (f". Agent: {clip(self.agent_note, 100)}" if self.agent_note else ""))
         if self.step:
             key, title, t = self.step
             est = self.timings.estimate(s.phase.key, key, self.gb()) if s else None
@@ -648,7 +676,7 @@ class JobProgress:
                     ", taking longer than usual" if est else "")
             now_doing = f" (now: {self.check})" if self.check else ""
             return f"still on “{title}”{now_doing}: {fmt_dur(ran)} so far{when}"
-        return f"the agent is working{(': ' + self.agent_note[:100]) if self.agent_note else ''}"
+        return f"the agent is working{(': ' + clip(self.agent_note, 100)) if self.agent_note else ''}"
 
     def tick(self) -> None:
         """Read new log lines; redraw the status line, or print a heartbeat in a log."""

@@ -50,26 +50,41 @@ def continue_prompt(res: pi.TaskResult) -> str:
             "and finish with the WEAVER_RESULT line as the last line of your final message.")
 
 
-def cleanup_servers(rt: Runtime, work: Path) -> None:
+def cleanup_servers(rt: Runtime, work: Path, port: int | None = None) -> None:
     """Stop the servers a job left behind (an agent that died, hit a limit or forgot): every loom-serve
-    recorded in WORK/state and every llama-server in the shared llama.cpp state dir."""
-    import subprocess
+    recorded in WORK/state, every llama-server in the shared llama.cpp state dir, and whatever loom-serve
+    still listens on the job's port (a PID file a script's restart left stale)."""
+    import os
+    import signal
     st = work / "state"
     for pid_file in sorted(st.glob("*.pid")) if st.is_dir() else []:
         subprocess.run(["bash", str(rt.script("loom-setup/scripts/stop.sh")), pid_file.stem],
                        env=rt.env(LOOM_SERVE_STATE=st), capture_output=True)
     ll = paths.home() / "llstate"
     for port_file in sorted(ll.glob("llamacpp-*.pid")) if ll.is_dir() else []:
-        port = port_file.stem.split("-", 1)[1]
-        subprocess.run(["bash", str(rt.script("loom-benchmark/scripts/llamacpp_server.sh")), "--stop", port],
+        p = port_file.stem.split("-", 1)[1]
+        subprocess.run(["bash", str(rt.script("loom-benchmark/scripts/llamacpp_server.sh")), "--stop", p],
                        env=rt.env(), capture_output=True)
+    if port:
+        try:
+            out = subprocess.run(["ss", "-ltnpH", f"sport = :{port}"], capture_output=True, text=True).stdout
+        except OSError:
+            out = ""
+        for pid in {int(m) for m in __import__("re").findall(r"pid=(\d+)", out)}:
+            try:
+                if Path(f"/proc/{pid}/comm").read_text().strip() == "loom-serve":
+                    os.kill(pid, signal.SIGTERM)
+            except (OSError, ValueError):
+                pass
 
 
 def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: bool = False,
               cont: bool = False, timeout_min: float | None = None, keep_servers: bool = False,
-              progress=None) -> pi.TaskResult:
+              progress=None, stop_at: float | None = None, wrap_up: str | None = None) -> pi.TaskResult:
     """One agent task. A session that ends without WEAVER_RESULT (output limit, a lost thread) is
-    continued in place up to MAX_CONTINUES times; servers the job left running are stopped after."""
+    continued in place up to MAX_CONTINUES times; servers the job left running are stopped after.
+    stop_at + wrap_up: a time limit for part of the task (optimize: the Speed up budget). Once it passes,
+    the session is stopped at the next safe point (no tool running) and continued with wrap_up."""
     from weaver import servers
     servers.interruptible()
     note = progress.note if progress else log
@@ -79,21 +94,28 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
     if not progress:
         log(f"agent session in {work} (log: {work / 'agent.jsonl'})")
     deadline = time.time() + timeout_min * 60 if timeout_min else None
+    continues = 0
     try:
-        for attempt in range(MAX_CONTINUES + 1):
+        while True:
             left = deadline - time.time() if deadline else None
             res = pi.run_task(prompt, work, model=model, skills_dir=rt.skills, skills=AGENT_SKILLS,
                               system_files=[prompt_file("rules.md")], agent_dir=paths.pi_dir(), base_env=base,
                               thinking=cfg.agent.thinking, cont=cont, verbose=verbose, timeout_s=left,
-                              progress=progress)
-            if res.result is not None or res.timed_out or attempt == MAX_CONTINUES:
+                              progress=progress, stop_at=stop_at if wrap_up else None)
+            if res.stopped_at_deadline and wrap_up:
+                note("the time budget for this part is used up: weaver asked the agent to keep the best "
+                     "build so far and move on")
+                prompt, cont, stop_at, wrap_up = wrap_up, True, None, None
+                continue
+            if res.result is not None or res.timed_out or continues == MAX_CONTINUES:
                 break
+            continues += 1
             why = "ran out of room in one reply" if res.stop_reason == "length" else "stopped before finishing"
-            note(f"the agent {why}; asking it to carry on from where it was ({attempt + 1} of {MAX_CONTINUES})")
+            note(f"the agent {why}; asking it to carry on from where it was ({continues} of {MAX_CONTINUES})")
             prompt, cont = continue_prompt(res), True
     finally:
         if not keep_servers:
-            cleanup_servers(rt, work)
+            cleanup_servers(rt, work, cfg.defaults.port_port)
     (work / "weaver_result.json").write_text(json.dumps(res.result or {}, indent=1))
     return res
 
@@ -177,6 +199,11 @@ def new_progress(rt: Runtime, title: str, phases: list[str], work: Path, *, verb
     prog.start((extra or []) + job_header(rt, work, verbose))
     return prog
 
+
+WRAP_UP = """The optimization budget ({budget_min} min) is used up. Stop optimizing now. If the build being served
+isn't the last kept one, restore the last kept build. Then run
+`NEEDLE_FULL=0 finalize.sh {package} http://127.0.0.1:{port} {gguf} {work}/bench`, fix only a gate it reports
+as failing, and finish with the WEAVER_RESULT line. Leave the servers running: weaver stops them."""
 
 FINISH_FINALIZE = """3. **Skip the optimization loop.** Go straight to
    `NEEDLE_FULL=0 finalize.sh {work}/pkg http://127.0.0.1:{port} <gguf> {work}/bench`, and fix any gate
@@ -343,8 +370,12 @@ def optimize(rt: Runtime, cfg: Config, ck: Checkpoint, target: str | None, budge
         port=cfg.defaults.port_port, memory_bytes=rec.get("memory_bytes"),
         target=target_text(target), budget_min=round(minutes), budget_h=round(minutes / 60, 2))
     progress.begin_phase("optimize")
-    # Hard stop: the optimization budget plus time for finalize (full gates) and the report.
-    res = run_agent(rt, cfg, work, prompt, verbose=verbose, timeout_min=minutes * 1.5 + 60, progress=progress)
+    wrap_up = WRAP_UP.format(budget_min=round(minutes), package=rec["package"], port=cfg.defaults.port_port,
+                             gguf=rec.get("gguf"), work=work)
+    # The budget is enforced: at its end the agent is stopped between tool calls and told to finalize the
+    # best build. The hard limit only catches a session that hangs after that.
+    res = run_agent(rt, cfg, work, prompt, verbose=verbose, timeout_min=minutes + 90, progress=progress,
+                    stop_at=time.time() + minutes * 60, wrap_up=wrap_up)
     new = record_port(ck, res, "optimize")
     progress.finish(ok=new.get("audit") == "PASS")
     summarize(progress, ck, new, res, "optimize")

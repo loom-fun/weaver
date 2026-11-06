@@ -11,5 +11,5 @@ This is a **port with basic optimizations only**:
    decoding method by measured speed, runs the quick gates and measures the baselines.
 {finish}
 
-Stop the model's server when you are done (`stop.sh port` with `LOOM_SERVE_STATE={work}/state`).
-`port` in WEAVER_RESULT is then null.
+Leave the servers running when you finish: weaver stops every server this job started (don't spend
+time on PID files). `port` in WEAVER_RESULT is null.

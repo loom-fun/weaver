@@ -140,7 +140,8 @@ class Freshness:
         if not self.known:
             return self.why
         if self.behind == 0:
-            return "up to date with loom-skills main" + (f" (plus {self.ahead} commits not on main)" if self.ahead else "")
+            return "up to date with loom-skills main" + (
+                f", plus {self.ahead} commit{'s' if self.ahead != 1 else ''} not on main yet" if self.ahead else "")
         return (f"{self.behind} commit{'s' if self.behind != 1 else ''} behind loom-skills main"
                 + (f" (newest from {self.newest_date})" if self.newest_date else ""))
 
