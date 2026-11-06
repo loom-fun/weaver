@@ -61,9 +61,12 @@ else B="" D="" R="" RED="" GRN="" YEL="" CYN=""; fi
 if [ $utf8 = 1 ]; then OK="✓" BAD="✗" WARN="!" SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
 else OK="ok" BAD="x" WARN="!" SPIN=('-' '\' '|' '/'); fi
 
-say()  { printf '%s\n' "$*"; }
-ok()   { printf '  %s%s%s %s\n' "$GRN" "$OK" "$R" "$*"; }
-warn() { printf '  %s%s%s %s\n' "$YEL" "$WARN" "$R" "$*"; }
+# While the loom is up, every line printed is kept, so a resize can repaint the screen (loom_fit).
+shown=(); keep=0
+out()  { printf '%s\n' "$1"; [ $keep = 0 ] || shown+=("$1"); }
+say()  { out "$*"; }
+ok()   { out "  $GRN$OK$R $*"; }
+warn() { out "  $YEL$WARN$R $*"; }
 die()  { loom_stop; printf '  %s%s %s%s\n' "$RED" "$BAD" "$*" "$R" >&2; exit 1; }
 tilde() { case "$1" in "$HOME"/*) printf '~/%s' "${1#"$HOME"/}" ;; *) printf '%s' "$1" ;; esac; }
 
@@ -79,15 +82,33 @@ ask() {  # ask "question" default(y|n) -> 0 for yes
 # A little loom: the shuttle carries a coloured weft thread across the warp, the reed beats it in, the
 # sheds swap, and the cloth grows a stripe per pass. Drawn in the foreground between progress polls
 # (no background drawer, so nothing interleaves), with cursor save/restore around each frame.
-anim=0; LW=20; lrow=1; lcol=1; lpos=0; ldir=1; lpass=0; lbeat=0; lcloth=(); llabel=""
+# The loom sits LW+2 columns wide at the right edge. The terminal size is read every frame. On a
+# resize the screen is cleared and repainted (the lines printed so far, then the loom at the new right
+# edge), so reflowed old frames never linger and nothing is drawn past the edge. When the terminal is too
+# small for it, the loom hides until there is room again.
+anim=0; loom_on=0; LW=20; lrow=1; lcol=1; tcols=0; trows=0; lpos=0; ldir=1; lpass=0; lbeat=0; lcloth=(); llabel=""
+term_size() {  # -> "rows cols"
+  local r=0 c=0
+  read -r r c < <(stty size < /dev/tty 2>/dev/null || echo "0 0") || true
+  [ "${c:-0}" -gt 0 ] || c=${COLUMNS:-80}
+  [ "${r:-0}" -gt 0 ] || r=${LINES:-24}
+  echo "$r $c"
+}
+loom_fit() {
+  [ $loom_on = 1 ] || return 0
+  local r c l
+  read -r r c < <(term_size)
+  [ "$r" = "$trows" ] && [ "$c" = "$tcols" ] && return 0
+  local first=$((tcols == 0))
+  trows=$r; tcols=$c
+  if [ "$c" -ge 84 ] && [ "$r" -ge 18 ]; then anim=1; lcol=$((c - LW - 3)); else anim=0; fi
+  [ $first = 1 ] && return 0
+  printf '%s' "$E[2J$E[H"                # repaint: what was printed, then (next frame) the loom
+  for l in "${shown[@]}"; do printf '%s\n' "$l"; done
+}
 loom_start() {
   [ $tty_out = 1 ] && [ $color = 1 ] && [ -z "${WEAVER_NO_ANIM:-}" ] || return 0
-  local rows=0 cols=0
-  read -r rows cols < <(stty size < /dev/tty 2>/dev/null || echo "0 0") || true
-  [ "${cols:-0}" -gt 0 ] || cols=${COLUMNS:-0}
-  [ "${rows:-0}" -gt 0 ] || rows=${LINES:-0}
-  [ "$cols" -ge 72 ] && [ "$rows" -ge 18 ] || return 0
-  anim=1; lcol=$((cols - LW - 3)); lrow=1
+  loom_on=1; lrow=1; loom_fit
   WEFT=(209 221 150 116 74 141 211)                 # coral gold lime turquoise blue violet pink
   lcloth=("${WEFT[4]}" "${WEFT[3]}" "${WEFT[2]}")
   if [ $utf8 = 1 ]; then
@@ -149,8 +170,8 @@ loom_frame() {
   fi
 }
 loom_stop() {
-  [ $anim = 1 ] || return 0
-  loom_frame; anim=0; printf '%s' "$R$E[?25h"
+  [ $loom_on = 1 ] || return 0
+  loom_fit; loom_frame; anim=0; loom_on=0; keep=0; shown=(); printf '%s' "$R$E[?25h"
 }
 rep() { local s="" n=$2; while [ $n -gt 0 ]; do s+="$1"; n=$((n - 1)); done; printf '%s' "$s"; }
 
@@ -163,8 +184,8 @@ with_progress() {
   BGPID=$pid
   while kill -0 $pid 2>/dev/null; do
     if [ $tty_out = 1 ]; then
-      clr
-      printf '  %s%s%s %s %s%s%s' "$CYN" "${SPIN[$((k % ${#SPIN[@]}))]}" "$R" "$label" "$D" "$($detail_fn)" "$R"
+      loom_fit
+      status_line "${SPIN[$((k % ${#SPIN[@]}))]}" "$label" "$($detail_fn)"
       loom_frame
     fi
     k=$((k + 1)); sleep 0.06
@@ -178,6 +199,17 @@ no_detail() { :; }
 # Clear the status line. Beside the loom, blank only up to it: erasing to the end of the line would
 # take a row of the loom with it until the next frame.
 clr() { if [ $anim = 1 ]; then printf '\r%*s\r' $((lcol - 2)) ''; else printf '\r%s' "$E[K"; fi; }
+# The status line, cut to the room left of the loom (or the terminal width) so it can never wrap: a
+# wrapped line is what \r cannot take back.
+status_line() {  # spinner label detail
+  local w label="$2" detail="$3"
+  if [ $anim = 1 ]; then w=$((lcol - 2)); else w=$(( ${tcols:-0} > 0 ? tcols - 1 : 79 )); fi
+  w=$((w - 4))
+  if [ ${#label} -ge $w ]; then label=${label:0:$((w > 0 ? w : 0))}; detail=""
+  else detail=${detail:0:$((w - ${#label} - 1))}; fi
+  clr
+  printf '  %s%s%s %s %s%s%s' "$CYN" "$1" "$R" "$label" "$D" "$detail" "$R"
+}
 
 BGPID=""; work=""
 cleanup() {
@@ -203,9 +235,11 @@ if [ $uninstall = 1 ]; then
 fi
 
 # ---- preflight -----------------------------------------------------------------------------------
-if [ $tty_out = 1 ] && [ $color = 1 ] && [ -z "${WEAVER_NO_ANIM:-}" ]; then printf '%s' "$E[2J$E[H"; fi
-printf '\n  %sweaver%s %sinstaller%s\n' "$B" "$R" "$D" "$R"
-printf '  %sHugging Face LLMs to fast local AMD Loom models.%s\n\n' "$D" "$R"
+if [ $tty_out = 1 ] && [ $color = 1 ] && [ -z "${WEAVER_NO_ANIM:-}" ]; then printf '%s' "$E[2J$E[H"; keep=1; fi
+out ""
+out "  ${B}weaver$R ${D}installer$R"
+out "  ${D}Hugging Face LLMs to fast local AMD Loom models.$R"
+out ""
 loom_start
 
 [ "$(uname -s)" = Linux ] || die "weaver needs Linux (Windows will follow)."
