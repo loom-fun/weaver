@@ -33,16 +33,9 @@ def bundle_root() -> Path | None:
 
 
 def skills_source() -> Path:
-    """The pinned loom-skills tree weaver ships with."""
-    candidates = []
-    if bundle_root():
-        candidates.append(bundle_root() / "skills")
-    here = Path(__file__).resolve().parent
-    candidates += [here / "_vendor" / "skills", here.parent / "vendor" / "loom-skills" / "skills"]
-    for c in candidates:
-        if (c / "loom" / "SKILL.md").is_file():
-            return c
-    raise FileNotFoundError("loom-skills not found (git submodule update --init, or reinstall weaver)")
+    """The loom-skills tree in use (weaver/skills.py: WEAVER_SKILLS, `weaver skills`, else the bundled one)."""
+    from weaver import skills
+    return skills.current().path
 
 
 def scripts_dir() -> Path:

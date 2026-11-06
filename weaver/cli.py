@@ -70,6 +70,15 @@ def _parser() -> argparse.ArgumentParser:
     s = sub.add_parser("agent-server", help="manage the local agent model server")
     s.add_argument("action", choices=["start", "stop", "status", "bench"])
 
+    s = sub.add_parser("skills", help="which loom skills weaver uses; switch to the latest or your own checkout",
+                       description="Show which loom-skills the agent uses and how they compare with loom-skills "
+                                   "main, or switch: `update` downloads main (or REF), `use PATH` uses your own "
+                                   "checkout, `use bundled` goes back to the ones this weaver release was tested "
+                                   "with. WEAVER_SKILLS=PATH overrides all of these for one command.")
+    s.add_argument("action", nargs="?", default="status", choices=["status", "update", "use"])
+    s.add_argument("arg", nargs="?", metavar="REF|PATH", help="update: a branch, tag or commit (default main); "
+                   "use: `bundled` or a loom-skills checkout")
+
     s = sub.add_parser("resume", help="continue an interrupted port/optimize agent session")
     s.add_argument("checkpoint", metavar="CHECKPOINT")
     return p
@@ -92,6 +101,34 @@ def _ca_certificates() -> None:
     os.environ["SSL_CERT_FILE"] = certifi.where()
 
 
+def _skills(a, p) -> int:
+    from weaver import skills
+    try:
+        if a.action == "update":
+            info = skills.download(a.arg or "main", log=lambda m: print(f"weaver: {m}", file=sys.stderr))
+        elif a.action == "use":
+            if not a.arg:
+                p.error("skills use needs `bundled` or a path to a loom-skills checkout")
+            info = skills.use_bundled() if a.arg == "bundled" else skills.use_path(a.arg)
+        else:
+            info = skills.current()
+    except (RuntimeError, FileNotFoundError) as e:
+        print(f"weaver: {e}", file=sys.stderr)
+        return 1
+    fresh = skills.freshness(info)
+    print(f"loom skills: {info.describe()}")
+    print(f"             {fresh.describe()}")
+    if info.kind != "bundled":
+        b = skills.bundled()
+        print(f"             (this weaver was tested with loom-skills {(b.commit or '?')[:7]}"
+              f"{' from ' + b.date if b.date else ''}; `weaver skills use bundled` goes back to it)")
+    elif fresh.known and fresh.behind:
+        print("             `weaver skills update` switches to the latest; `weaver skills use PATH` to your checkout")
+    if a.action != "status":
+        print("Ports made with other skills are redone the next time you port or serve them.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     _ca_certificates()
     p = _parser()
@@ -105,6 +142,8 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "init":
         from weaver.commands import init
         return init.run(skip_llamacpp=a.skip_llamacpp)
+    if a.cmd == "skills":
+        return _skills(a, p)
 
     from weaver import checkpoint, config
     from weaver.runtime import Runtime

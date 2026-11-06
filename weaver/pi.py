@@ -210,7 +210,9 @@ def parse_result(text: str) -> dict | None:
 
 def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: list[str],
              system_files: list[Path], agent_dir: Path, base_env: dict, thinking: str = "medium",
-             cont: bool = False, verbose: bool = False, timeout_s: float | None = None) -> TaskResult:
+             cont: bool = False, verbose: bool = False, timeout_s: float | None = None,
+             progress=None) -> TaskResult:
+    """progress: anything with event(e) and line(text) (weaver.progress.JobProgress); default: a line per step."""
     pi_bin = binary()
     if not pi_bin:
         raise RuntimeError("Pi is not installed: run `weaver init`")
@@ -223,7 +225,7 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
     if cont:
         cmd.append("--continue")
     cmd.append(prompt)
-    prog = Progress(verbose=verbose)
+    prog = progress or Progress(verbose=verbose)
     final_text = ""
     stop_reason = None
     timed_out = False
@@ -255,7 +257,7 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
             p.terminate()
             raise
     result = parse_result(final_text)
-    prog.line(f"agent finished: {prog.tool_calls} tool calls, {prog.tokens} output tokens")
+    prog.line(f"agent finished: {getattr(prog, 'tool_calls', 0)} tool calls")
     return TaskResult(ok=result is not None and p.returncode == 0, result=result, log=log,
                       seconds=time.time() - t0, final_text=final_text, stop_reason=stop_reason, timed_out=timed_out)
 

@@ -77,7 +77,9 @@ def _fetch(rt: Runtime, source: str, out: Path, preset: str | None = None) -> tu
     except ValueError:
         presets = []
     chosen = pick_preset(presets, preset)
-    jobs.log(f"loom-fetch {source}{f' (preset {chosen})' if chosen else ''} -> {out}")
+    name = source.split("huggingface.co/")[-1].split("/resolve/")[0] if "huggingface.co/" in source else Path(source).parent.name
+    jobs.log(f"downloading the Loom package {name}{f' ({chosen} preset)' if chosen else ''}; the weights come "
+             "from (and stay in) your Hugging Face cache")
     p = subprocess.run([fetch, source, f"--output={out}", "--no-input", *([f"--preset={chosen}"] if chosen else [])],
                        env=rt.env())
     if p.returncode != 0:
@@ -110,7 +112,7 @@ def resolve(rt: Runtime, cfg: Config, ck: Checkpoint, *, allow_port: bool = True
             raise SystemExit("not ported")
         rec = jobs.port(rt, cfg, ck, no_spec=no_spec, verbose=verbose)
         if rec.get("status") != "ok" or not rec.get("package"):
-            raise SystemExit(f"the port failed: {rec.get('summary') or 'see ' + rec['work']}")
+            raise SystemExit(1)       # jobs.port() already said what happened and what to do
     pkg = Path(rec["package"])
     mem = int(rec.get("memory_bytes") or servers.memory_bytes_for(pkg))
     return Servable("port", pkg / "model.json", mem, rec.get("model_id"))

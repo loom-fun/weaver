@@ -66,26 +66,30 @@ def cleanup_servers(rt: Runtime, work: Path) -> None:
 
 
 def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: bool = False,
-              cont: bool = False, timeout_min: float | None = None, keep_servers: bool = False) -> pi.TaskResult:
+              cont: bool = False, timeout_min: float | None = None, keep_servers: bool = False,
+              progress=None) -> pi.TaskResult:
     """One agent task. A session that ends without WEAVER_RESULT (output limit, a lost thread) is
     continued in place up to MAX_CONTINUES times; servers the job left running are stopped after."""
     from weaver import servers
     servers.interruptible()
-    agent_server.ensure_running(rt, cfg, log)
+    note = progress.note if progress else log
+    agent_server.ensure_running(rt, cfg, note)
     model = agent_server.configure_pi(cfg)
     base = rt.env(WEAVER_AGENT_PORT=cfg.agent.port, WEAVER_WORK=work)
-    log(f"agent session in {work} (log: {work / 'agent.jsonl'})")
+    if not progress:
+        log(f"agent session in {work} (log: {work / 'agent.jsonl'})")
     deadline = time.time() + timeout_min * 60 if timeout_min else None
     try:
         for attempt in range(MAX_CONTINUES + 1):
             left = deadline - time.time() if deadline else None
             res = pi.run_task(prompt, work, model=model, skills_dir=rt.skills, skills=AGENT_SKILLS,
                               system_files=[prompt_file("rules.md")], agent_dir=paths.pi_dir(), base_env=base,
-                              thinking=cfg.agent.thinking, cont=cont, verbose=verbose, timeout_s=left)
+                              thinking=cfg.agent.thinking, cont=cont, verbose=verbose, timeout_s=left,
+                              progress=progress)
             if res.result is not None or res.timed_out or attempt == MAX_CONTINUES:
                 break
-            log(f"no WEAVER_RESULT yet (stop: {res.stop_reason}); continuing the session "
-                f"({attempt + 1}/{MAX_CONTINUES})")
+            why = "ran out of room in one reply" if res.stop_reason == "length" else "stopped before finishing"
+            note(f"the agent {why}; asking it to carry on from where it was ({attempt + 1} of {MAX_CONTINUES})")
             prompt, cont = continue_prompt(res), True
     finally:
         if not keep_servers:
@@ -121,31 +125,130 @@ def rt_skills_rev() -> str:
         return "unknown"
 
 
+def _tilde(p) -> str:
+    s, h = str(p), str(Path.home())
+    return "~" + s[len(h):] if s.startswith(h + "/") else s
+
+
+def job_header(rt: Runtime, work: Path, verbose: bool) -> list[str]:
+    """What the user should know before a long job: which skills, where the files go."""
+    from weaver import skills
+    info = skills.current()
+    fresh = skills.freshness(info)
+    lines = [f"skills    {info.describe()}"]
+    if fresh.known and fresh.behind:
+        lines.append(f"          {fresh.describe()}: `weaver skills update` switches to the latest")
+    else:
+        lines.append(f"          {fresh.describe()}")
+    lines.append(f"work dir  {_tilde(work)}" + ("" if verbose else "   (-v shows every command the agent runs)"))
+    return lines
+
+
+def new_progress(rt: Runtime, title: str, phases: list[str], work: Path, *, verbose: bool,
+                 budget_s: float | None = None):
+    from weaver.progress import JobProgress
+    prog = JobProgress(title, phases, work, budget_s=budget_s, verbose=verbose)
+    prog.start(job_header(rt, work, verbose))
+    return prog
+
+
+FINISH_FINALIZE = """3. **Skip the optimization loop.** Go straight to
+   `finalize.sh {work}/pkg http://127.0.0.1:{port} <gguf> {work}/bench`, and fix any gate failure it
+   reports before finishing."""
+FINISH_FOR_OPTIMIZE = """3. **Stop after qualify.** Don't optimize and don't run finalize.sh: weaver runs the optimization
+   next, in a new session, and that one ends with finalize.sh. Put qualify's gates verdict in `gates`
+   (fix a failing gate first), `"audit": "NOT_RUN"` and `"report": null`."""
+
+
 def port(rt: Runtime, cfg: Config, ck: Checkpoint, *, force: bool = False, no_spec: bool = False,
-         verbose: bool = False) -> dict:
+         verbose: bool = False, progress=None, for_optimize: bool = False) -> dict:
+    """Port CK. With for_optimize, stop after qualify: the optimize session that follows finalizes."""
     done = registry.passing(ck.slug)
-    if done and not force and done.get("skills") == rt_skills_rev():
-        log(f"{ck} is already ported ({done['package']}, gates {done['gates']}); --force re-ports")
-        return done
+    if done and not force:
+        if done.get("skills") == rt_skills_rev():
+            log(f"{ck} is already ported (gates {done['gates']}): {_tilde(done['package'])}. --force ports it again")
+            return done
+        log(f"{ck} was ported with other loom skills than the ones in use now: porting it again")
     work = paths.work_dir(ck.slug)
     work.mkdir(parents=True, exist_ok=True)
+    own = progress is None
+    if own:
+        progress = new_progress(rt, f"weaver port {ck}", ["port", "qualify", "finalize"], work, verbose=verbose)
+    finish = (FINISH_FOR_OPTIMIZE if for_optimize else FINISH_FINALIZE).format(work=work, port=cfg.defaults.port_port)
     prompt = prompt_file("port.md").read_text().format(
         spec=ck.spec, work=work, port=cfg.defaults.port_port, skills=rt.skills,
-        memory_gib=target_budget_gib(cfg), spec_env="SPEC=off " if no_spec else "")
-    res = run_agent(rt, cfg, work, prompt, verbose=verbose)
+        memory_gib=target_budget_gib(cfg), spec_env="SPEC=off " if no_spec else "", finish=finish)
+    progress.begin_phase("port")
+    res = run_agent(rt, cfg, work, prompt, verbose=verbose, progress=progress)
     rec = record_port(ck, res, "port")
-    _report(rec, res)
+    if own or rec.get("gates") != "PASS":
+        progress.finish(ok=rec.get("gates") == "PASS" and rec.get("status") == "ok")
+        summarize(progress, ck, rec, res, "port")
     return rec
 
 
-def _report(rec: dict, res: pi.TaskResult) -> None:
+def _median(xs):
+    xs = sorted(x for x in xs if x)
+    return xs[len(xs) // 2] if xs else None
+
+
+def speeds(bench: Path) -> dict:
+    """Headline numbers from perf_log.jsonl: the final (else baseline) runs of each engine."""
+    rows = []
+    try:
+        rows = [json.loads(l) for l in (bench / "perf_log.jsonl").read_text().splitlines() if l.strip()]
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    def pick(kind, labels):
+        for lab in labels:
+            sel = [r for r in rows if r.get("kind") == kind and r.get("label") == lab]
+            if sel:
+                pf = [(r.get("prefill") or [{}])[0].get("prefill_tps") for r in sel]
+                return {"decode": _median([r.get("decode_tps") for r in sel]), "prefill": _median(pf),
+                        "prefill_tokens": next(((r.get("prefill") or [{}])[0].get("prompt_tokens") for r in sel
+                                                if r.get("prefill")), None)}
+        return None
+    return {"loom": pick("loom", ["final", "loom-baseline"]), "llama": pick("llama", ["llama-final", "llama-rocm"])}
+
+
+def summarize(progress, ck: Checkpoint, rec: dict, res: pi.TaskResult, kind: str) -> None:
+    """The end of a job, in words: did it work, how fast is it, what next."""
+    d = progress.d
+    took = progress.fmt_total()
+    d.print()
+    ok = rec.get("status") == "ok" and rec.get("gates") == "PASS"
     if not res.result:
-        log(f"the agent finished without a WEAVER_RESULT line: see {res.log}")
+        d.print(f"{d.red('✗')} {d.bold('The agent stopped without reporting a result')} after {took}.")
+        d.print(f"  What it was doing is in {_tilde(res.log)}. `weaver resume {ck}` picks it up again.")
         return
-    log(f"{rec['status']}: gates {rec['gates']}, audit {rec['audit']} "
-        f"({res.seconds / 60:.0f} min) {rec.get('summary', '')}")
+    if ok:
+        audited = rec.get("audit") == "PASS"
+        what = ("optimized and checked: every correctness check and the final audit passed" if kind == "optimize"
+                else "running on Loom: every correctness check passed" + (" and the final audit passed" if audited else ""))
+        d.print(f"{d.green('✓')} {d.bold(f'{ck} is {what}.')} {d.dim('(' + took + ')')}")
+    else:
+        d.print(f"{d.red('✗')} {d.bold(f'{ck} did not pass')} (checks: {rec.get('gates', '?')}, audit: "
+                f"{rec.get('audit', '?')}). {d.dim('(' + took + ')')}")
+    if rec.get("summary"):
+        d.print(f"  {d.dim('agent:')} {rec['summary']}")
+    sp = speeds(paths.work_dir(ck.slug) / "bench")
+    lo, ll = sp.get("loom"), sp.get("llama")
+    if lo and lo.get("decode"):
+        vs = lambda a, b: (f"   llama.cpp ROCm: {b:,.0f}  ({(a / b - 1) * 100:+.0f}%)" if b else "")
+        d.print(f"  decode    {lo['decode']:,.0f} tok/s{vs(lo['decode'], (ll or {}).get('decode'))}")
+        if lo.get("prefill"):
+            n = lo.get("prefill_tokens")
+            d.print(f"  prefill   {lo['prefill']:,.0f} tok/s{f' ({n:,}-token prompt)' if n else ''}"
+                    f"{vs(lo['prefill'], (ll or {}).get('prefill'))}")
     if rec.get("report"):
-        log(f"report: {rec['report']}")
+        d.print(f"  report    {_tilde(rec['report'])}")
+    if ok:
+        nxt = f"weaver serve {ck}" + ("" if kind == "optimize" else f"   or   weaver optimize {ck}")
+        d.print(f"  next      {d.cyan(nxt)}")
+    else:
+        d.print(f"  details   {_tilde(paths.work_dir(ck.slug))} (agent log: agent.jsonl). "
+                f"`weaver resume {ck}` lets the agent keep going.")
 
 
 def parse_budget(text: str | None) -> float | None:
@@ -182,20 +285,27 @@ def default_budget_min(cfg: Config) -> float:
 def optimize(rt: Runtime, cfg: Config, ck: Checkpoint, target: str | None, budget: str | None, *,
              no_spec: bool = False, verbose: bool = False) -> dict:
     rec = registry.passing(ck.slug)
-    if not rec:
-        log(f"{ck} has no passing port yet: porting first")
-        rec = port(rt, cfg, ck, no_spec=no_spec, verbose=verbose)
-        if rec.get("gates") != "PASS":
-            raise SystemExit("the port did not pass its gates; not optimizing")
+    if rec and rec.get("skills") != rt_skills_rev():
+        log(f"{ck} was ported with other loom skills than the ones in use now: porting it again first")
+        rec = None
     minutes = parse_budget(budget) or default_budget_min(cfg)
     work = paths.work_dir(ck.slug)
-    log(f"optimizing {ck}: target = {target or 'roofline'}, budget = {minutes:.0f} min")
+    work.mkdir(parents=True, exist_ok=True)
+    phases = (["optimize", "finalize"] if rec else ["port", "qualify", "optimize", "finalize"])
+    progress = new_progress(rt, f"weaver optimize {ck}  (target: {target or 'roofline'}, budget: "
+                            f"{round(minutes)} min)", phases, work, verbose=verbose, budget_s=minutes * 60)
+    if not rec:
+        rec = port(rt, cfg, ck, no_spec=no_spec, verbose=verbose, progress=progress, for_optimize=True)
+        if rec.get("gates") != "PASS":
+            raise SystemExit(1)       # port() already said why
     prompt = prompt_file("optimize.md").read_text().format(
         spec=ck.spec, skills=rt.skills, package=rec["package"], gguf=rec.get("gguf"), work=work,
         port=cfg.defaults.port_port, memory_bytes=rec.get("memory_bytes"),
         target=target_text(target), budget_min=round(minutes), budget_h=round(minutes / 60, 2))
+    progress.begin_phase("optimize")
     # Hard stop: the optimization budget plus time for finalize (full gates) and the report.
-    res = run_agent(rt, cfg, work, prompt, verbose=verbose, timeout_min=minutes * 1.5 + 60)
+    res = run_agent(rt, cfg, work, prompt, verbose=verbose, timeout_min=minutes * 1.5 + 60, progress=progress)
     new = record_port(ck, res, "optimize")
-    _report(new, res)
+    progress.finish(ok=new.get("audit") == "PASS")
+    summarize(progress, ck, new, res, "optimize")
     return new

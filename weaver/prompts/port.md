@@ -9,9 +9,7 @@ This is a **port with basic optimizations only**:
    starter doesn't cover, follow `loom-port-llm` for that stage only, then resume with `FROM=build`.
 2. `qualify.sh {work}/pkg http://127.0.0.1:{port} <gguf> {work}/bench`: this picks the speculative
    decoding method by measured speed, runs the quick gates and measures the baselines.
-3. **Skip the optimization loop.** Go straight to
-   `finalize.sh {work}/pkg http://127.0.0.1:{port} <gguf> {work}/bench`, and fix any gate failure it
-   reports before finishing.
+{finish}
 
 Stop the model's server when you are done (`stop.sh port` with `LOOM_SERVE_STATE={work}/state`).
 `port` in WEAVER_RESULT is then null.

@@ -107,8 +107,10 @@ def test_config_roundtrip(home):
 
 
 def test_prompts_format():
-    p = jobs.prompt_file("port.md").read_text().format(spec="a/b", work="/w", port=8160, memory_gib=30, spec_env="", skills="/s")
-    assert "port.sh a/b /w 8160 30" in p
+    for finish, want in ((jobs.FINISH_FINALIZE, "finalize.sh /w/pkg"), (jobs.FINISH_FOR_OPTIMIZE, "Stop after qualify")):
+        p = jobs.prompt_file("port.md").read_text().format(spec="a/b", work="/w", port=8160, memory_gib=30, spec_env="",
+                                                           skills="/s", finish=finish.format(work="/w", port=8160))
+        assert "port.sh a/b /w 8160 30" in p and want in p and "{" not in p.split("WEAVER")[0]
     jobs.prompt_file("optimize.md").read_text().format(spec="a/b", skills="/s", package="/p", gguf="/g", work="/w", port=1,
                                                        memory_bytes=1, target="t", budget_min=1, budget_h=1)
     assert "WEAVER_RESULT" in jobs.prompt_file("rules.md").read_text()
