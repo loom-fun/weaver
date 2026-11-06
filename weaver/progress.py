@@ -300,12 +300,14 @@ class JobProgress:
         self.tries = 0
 
     # -- helpers
+    expected_gb: float | None = None     # the GGUF's size from Hugging Face, before it is downloaded
+
     def gb(self) -> float | None:
         g = sorted((self.work / "gguf").glob("*.gguf")) if (self.work / "gguf").is_dir() else []
         try:
-            return sum(os.path.getsize(os.path.realpath(p)) for p in g) / 1e9 or None
+            return sum(os.path.getsize(os.path.realpath(p)) for p in g) / 1e9 or self.expected_gb
         except OSError:
-            return None
+            return self.expected_gb
 
     def state(self, key: str) -> PhaseState | None:
         return next((s for s in self.states if s.phase.key == key), None)
@@ -547,7 +549,9 @@ class JobProgress:
             g["m"][m] = v
         s = self.active()
         for (_, change), g in groups.items():
-            self.tries += 1
+            remeasure = "start" in str(change).lower() or "baseline" in str(change).lower()
+            if not remeasure:
+                self.tries += 1
             parts = []
             for m, (name, unit) in self.METRICS.items():
                 v = g["m"].get(m)
@@ -555,10 +559,13 @@ class JobProgress:
                     continue
                 b = self.base.get(m)
                 parts.append(f"{name} {v:,.0f} {unit}" + (f" ({(v / b - 1) * 100:+.0f}% vs the start)" if b else ""))
-                if g["kept"]:
+                if g["kept"] and not remeasure:
                     self.best[m] = max(self.best.get(m, v), v)
             what = ", ".join(parts) or "measured"
             if s and s.phase.key == "optimize":
+                if remeasure:      # the loop measuring where it starts from, not a change
+                    self.d.print(f"{self.stamp()}     {self.d.dim('·')} measured the starting point again: {what}")
+                    continue
                 mark = self.d.green("✓ kept") if g["kept"] else self.d.dim("· not kept")
                 self.d.print(f"{self.stamp()}     {mark} {str(change)[:80]}: {what}")
 

@@ -144,10 +144,36 @@ def job_header(rt: Runtime, work: Path, verbose: bool) -> list[str]:
     return lines
 
 
+def expected_gguf_gb(ck: Checkpoint) -> float | None:
+    """The size of the GGUF a port will use (the named file, else plain Q4_K_M), from Hugging Face's
+    file list, so the plan's estimates fit the model before anything is downloaded. Best effort."""
+    import re
+    if not ck.repo:
+        return None
+    try:
+        from huggingface_hub import HfApi
+        info = HfApi().model_info(ck.repo, files_metadata=True, timeout=10)
+    except Exception:
+        return None
+    files = [(f.rfilename, f.size or 0) for f in info.siblings or [] if f.rfilename.endswith(".gguf")]
+    files = [f for f in files if "mmproj" not in f[0].lower()]
+    if ck.file:
+        pick = [f for f in files if Path(f[0]).name == Path(ck.file).name]
+    else:
+        q4 = [f for f in files if re.search(r"Q4_K_M", f[0], re.I)]
+        pick = [f for f in q4 if "UD-" not in f[0]] or q4
+        if pick and "-of-" not in pick[0][0]:
+            pick = pick[:1]                                   # one file; split GGUFs sum their parts
+    total = sum(sz for _, sz in pick)
+    return total / 1e9 if total else None
+
+
 def new_progress(rt: Runtime, title: str, phases: list[str], work: Path, *, verbose: bool,
-                 budget_s: float | None = None, extra: list[str] | None = None):
+                 budget_s: float | None = None, extra: list[str] | None = None, ck: Checkpoint | None = None):
     from weaver.progress import JobProgress
     prog = JobProgress(title, phases, work, budget_s=budget_s, verbose=verbose)
+    if ck is not None:
+        prog.expected_gb = expected_gguf_gb(ck)
     prog.start((extra or []) + job_header(rt, work, verbose))
     return prog
 
@@ -174,7 +200,7 @@ def port(rt: Runtime, cfg: Config, ck: Checkpoint, *, force: bool = False, no_sp
     work.mkdir(parents=True, exist_ok=True)
     own = progress is None
     if own:
-        progress = new_progress(rt, f"weaver port {ck}", ["port", "qualify", "finalize"], work, verbose=verbose)
+        progress = new_progress(rt, f"weaver port {ck}", ["port", "qualify", "finalize"], work, verbose=verbose, ck=ck)
     finish = (FINISH_FOR_OPTIMIZE if for_optimize else FINISH_FINALIZE).format(work=work, port=cfg.defaults.port_port)
     prompt = prompt_file("port.md").read_text().format(
         spec=ck.spec, work=work, port=cfg.defaults.port_port, skills=rt.skills,
@@ -306,7 +332,7 @@ def optimize(rt: Runtime, cfg: Config, ck: Checkpoint, target: str | None, budge
     phases = (["optimize", "finalize"] if rec else ["port", "qualify", "optimize", "finalize"])
     t = (target or "roofline").strip()
     progress = new_progress(rt, f"weaver optimize {ck}", phases, work, verbose=verbose, budget_s=minutes * 60,
-                            extra=[f"goal      {TARGET_WORDS.get(t, t + ' (relative to llama.cpp ROCm)')}, "
+                            ck=ck, extra=[f"goal      {TARGET_WORDS.get(t, t + ' (relative to llama.cpp ROCm)')}, "
                                    f"within {round(minutes)} min of optimizing"])
     if not rec:
         rec = port(rt, cfg, ck, no_spec=no_spec, verbose=verbose, progress=progress, for_optimize=True)

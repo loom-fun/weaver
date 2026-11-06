@@ -112,6 +112,7 @@ def test_speed_up_shows_each_change_and_the_best_so_far(tmp_path, monkeypatch):
     p.begin_phase("optimize")
     with open(tj, "a") as f:
         f.write(json.dumps({"ts": "b", "metric": "decode_tps", "value": 63.2, "change": "int8 matvec", "kept": True}) + "\n")
+        f.write(json.dumps({"ts": "a2", "metric": "decode_tps", "value": 54.0, "change": "loom-start", "kept": True}) + "\n")
         f.write(json.dumps({"ts": "c", "metric": "decode_tps", "value": 57.1, "change": "bigger tiles", "kept": False}) + "\n")
     clock.t += 200
     p.tick()
@@ -119,4 +120,5 @@ def test_speed_up_shows_each_change_and_the_best_so_far(tmp_path, monkeypatch):
     assert "change one thing · rebuild · measure" in text           # the plan says what Speed up does
     assert "✓ kept int8 matvec: decode 63 tok/s (+9% vs the start)" in text
     assert "· not kept bigger tiles: decode 57 tok/s (-2% vs the start)" in text
+    assert "measured the starting point again: decode 54 tok/s" in text and "kept loom-start" not in text
     assert p.speedup_text() == "decode 63 tok/s (+9%), target 75, 2 changes tried"
