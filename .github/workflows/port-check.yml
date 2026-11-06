@@ -3,7 +3,8 @@ name: port-check
 # the way a user installs it, with its output straight in the job log: the task list, checked-off steps,
 # time estimates and the closing summary are what this job's log shows.
 #   build  (GitHub-hosted)  the release tarball + install.sh
-#   port   (DevLab)         install.sh, weaver init, weaver skills, weaver port unsloth/Qwen3.5-0.8B-GGUF
+#   port   (DevLab)         install.sh, weaver init, weaver skills, then `weaver optimize MODEL roofline 20m`:
+#                           all four tasks (Convert, Verify, Speed up, Final check) on a model that isn't ported yet
 # Runs on pull requests that change weaver's own code or prompts, and on demand (any model).
 on:
   pull_request:
@@ -13,8 +14,11 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: checkpoint to port
+        description: checkpoint
         default: unsloth/Qwen3.5-0.8B-GGUF
+      budget:
+        description: optimization budget
+        default: 20m
 
 permissions:
   contents: read
@@ -49,6 +53,7 @@ jobs:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       GH_TOKEN: ${{ secrets.LOOM_SKILLS_TOKEN || github.token }}   # lets `weaver skills` compare with loom-skills main
       MODEL: ${{ inputs.model || 'unsloth/Qwen3.5-0.8B-GGUF' }}
+      BUDGET: ${{ inputs.budget || '20m' }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -63,8 +68,8 @@ jobs:
         run: weaver init --skip-llamacpp
       - name: weaver skills
         run: weaver skills
-      - name: weaver port ${{ env.MODEL }}
-        run: weaver port "$MODEL"
+      - name: weaver optimize ${{ env.MODEL }} roofline ${{ env.BUDGET }}
+        run: weaver optimize "$MODEL" roofline "$BUDGET"
       - if: always()
         name: collect
         run: |
