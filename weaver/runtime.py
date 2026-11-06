@@ -130,11 +130,14 @@ def ensure_library(root: Path | None = None) -> Path | None:
     """LOOM_ROOT/library at the SDK's catalog revision: the bundled copy, else a GitHub tarball."""
     root = root or paths.loom_root()
     lib = root / "library"
+    b = paths.bundle_root()
+    want = b / "library" if b and (b / "library").is_dir() else None
+    if lib.is_symlink() and (not lib.exists() or (want and lib.resolve() != want.resolve())):
+        lib.unlink()          # a previous version's bundle (upgraded or removed by install.sh)
     if lib.exists():
         return lib
-    b = paths.bundle_root()
-    if b and (b / "library").is_dir():
-        lib.symlink_to(b / "library")
+    if want:
+        lib.symlink_to(want)
         return lib
     rev = catalog_revision()
     if not rev:

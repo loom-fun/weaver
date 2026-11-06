@@ -1,7 +1,8 @@
 """Where everything lives.
 
 WEAVER_HOME (default ~/.local/share/weaver) holds all state:
-  <version>/        the unpacked bundle (bundled mode only; the stub extracts it here)
+  <version>/        the unpacked bundle (bundled mode only; install.sh unpacks it here)
+  current -> <version>  the active one (bin/weaver on PATH links through it)
   runtime/<rev>/    rendered skills for one skills revision
   loom/             LOOM_ROOT shim the skills expect (.venv/bin, .tools/bin, library)
   bin/              python3 + tools put first on PATH for the skills' scripts
@@ -22,7 +23,7 @@ def home() -> Path:
 
 
 def bundle_root() -> Path | None:
-    """The unpacked bundle, or None when pip-installed. The stub sets WEAVER_BUNDLE; running the
+    """The unpacked bundle, or None when pip-installed. The launcher (bin/weaver) sets WEAVER_BUNDLE; running the
     bundled interpreter directly is recognised by the BUNDLE file next to python/."""
     b = os.environ.get("WEAVER_BUNDLE")
     if b:

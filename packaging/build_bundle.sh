@@ -1,5 +1,7 @@
 #!/bin/bash
-# Build the single-file weaver bundle: packaging/out/weaver-<version>-linux-x64
+# Build the weaver release tarball: packaging/out/weaver-linux-x64.tar.gz (+ install.sh, SHA256SUMS)
+#   bin/weaver  the launcher (packaging/launcher.sh)
+#   BUNDLE      versions of everything inside; its first line is "weaver <version>"
 #   python/   relocatable CPython (python-build-standalone) + hrx-loom[hf] + the tools deps + weaver
 #   pi/       the standalone Pi release
 #   skills/   the pinned loom-skills (vendor/loom-skills)
@@ -60,13 +62,12 @@ skills $(git -C "$repo/vendor/loom-skills" rev-parse HEAD)
 built $(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 
-echo "== payload"
-payload="$out/payload.tar.gz"
-tar -C "$root" -czf "$payload" .
-sha=$(sha256sum "$payload" | cut -c1-16)
-bin="$out/weaver-$version-linux-x64"
-sed -e "s/@VERSION@/$version/" -e "s/@PAYLOAD_SHA@/$sha/" "$here/stub.sh" > "$bin"
-cat "$payload" >> "$bin"
-chmod +x "$bin"
-rm -f "$payload"
-echo "built $bin ($(du -h "$bin" | cut -f1))"
+mkdir -p "$root/bin"
+install -m 755 "$here/launcher.sh" "$root/bin/weaver"
+
+echo "== tarball"
+tgz="$out/weaver-linux-x64.tar.gz"
+tar -C "$root" -czf "$tgz" .
+install -m 755 "$repo/install.sh" "$out/install.sh"
+(cd "$out" && sha256sum weaver-linux-x64.tar.gz install.sh > SHA256SUMS)
+echo "built $tgz ($(du -h "$tgz" | cut -f1)), weaver $version"

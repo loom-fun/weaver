@@ -37,13 +37,13 @@ jobs:
           python-version: "3.12"
       - run: pip install '.[test]' && pytest -q
       - run: packaging/build_bundle.sh
-      - run: evals/tier1_container.sh packaging/out/weaver-*-linux-x64
-      - run: (cd packaging/out && sha256sum weaver-*-linux-x64 > SHA256SUMS)
+      - run: evals/tier1_container.sh packaging/out
       - uses: actions/upload-artifact@v4
         with:
           name: weaver-bundle
           path: |
-            packaging/out/weaver-*-linux-x64
+            packaging/out/weaver-linux-x64.tar.gz
+            packaging/out/install.sh
             packaging/out/SHA256SUMS
           retention-days: 14
 
@@ -63,7 +63,7 @@ jobs:
       - name: release_check.sh on the CI bundle
         run: |
           set -o pipefail
-          TMPDIR=$RUNNER_TEMP bash evals/release_check.sh "$(ls $PWD/bundle/weaver-*-linux-x64)" 2>&1 | tee smoke.log
+          TMPDIR=$RUNNER_TEMP bash evals/release_check.sh "$PWD/bundle" 2>&1 | tee smoke.log
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -88,15 +88,17 @@ jobs:
         with:
           name: weaver-bundle
           path: bundle
-      - name: init (agent model, Pi, llama.cpp reference)
+      - name: install + init (agent model, Pi, llama.cpp reference)
         run: |
-          export WEAVER_HOME=$RUNNER_TEMP/weaver-home; echo "WEAVER_HOME=$WEAVER_HOME" >> "$GITHUB_ENV"
-          W=$(ls $PWD/bundle/weaver-*-linux-x64); chmod +x "$W"; echo "W=$W" >> "$GITHUB_ENV"
+          export WEAVER_HOME=$RUNNER_TEMP/weaver-home WEAVER_BIN_DIR=$RUNNER_TEMP/bin WEAVER_NO_MODIFY_PATH=1
+          echo "WEAVER_HOME=$WEAVER_HOME" >> "$GITHUB_ENV"
+          W=$WEAVER_BIN_DIR/weaver; echo "W=$W" >> "$GITHUB_ENV"
+          WEAVER_RELEASE_URL=file://$PWD/bundle bash bundle/install.sh --no-init
           "$W" doctor || true
           "$W" init
       - name: "trial ${{ matrix.trial }}: weaver ${{ matrix.cmd }} ${{ matrix.model }}"
         run: |
-          PY=$(ls -d "$WEAVER_HOME"/*/python/bin/python3 | head -1)   # the bundle's own interpreter
+          PY=$WEAVER_HOME/current/python/bin/python3                   # the bundle's own interpreter
           "$PY" -I evals/run_eval.py "huggingface://${{ matrix.model }}" ${{ matrix.cmd }} --weaver "$W" --stall-min 40
       - if: always()
         name: collect

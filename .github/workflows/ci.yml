@@ -16,7 +16,7 @@ jobs:
           python-version: "3.12"
       - run: pip install '.[test]'
       - run: pytest -q
-      - run: bash -n packaging/build_bundle.sh && sh -n packaging/stub.sh && bash -n evals/tier2_smoke.sh
+      - run: bash -n packaging/build_bundle.sh && sh -n packaging/launcher.sh && bash -n install.sh && bash -n evals/tier2_smoke.sh && bash -n evals/release_check.sh
   bundle:
     needs: tier0
     runs-on: ubuntu-24.04
@@ -26,8 +26,11 @@ jobs:
           submodules: recursive
           token: ${{ secrets.LOOM_SKILLS_TOKEN || github.token }}
       - run: packaging/build_bundle.sh
-      - run: evals/tier1_container.sh packaging/out/weaver-*-linux-x64
+      - run: evals/tier1_container.sh packaging/out
       - uses: actions/upload-artifact@v4
         with:
-          name: weaver-linux-x64
-          path: packaging/out/weaver-*-linux-x64
+          name: weaver-release
+          path: |
+            packaging/out/weaver-linux-x64.tar.gz
+            packaging/out/install.sh
+            packaging/out/SHA256SUMS

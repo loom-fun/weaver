@@ -11,7 +11,7 @@ model in the browser.
 
 Decisions already made:
 - Linux x86-64 for v1. Paths stay platform-agnostic (bin/ vs Scripts/) so a Windows bundle can follow.
-- Ship a **single self-extracting file**.
+- Ship a **single self-extracting file**. (0.1.4 replaced it with `curl … | bash` installing a tarball: install.sh.)
 - **Agent-driven**: each port, optimize or serve run, and the card-writing step of upload, is one Pi
   session with the loom-skills. weaver code covers only bootstrapping, the agent's own server, the
   web UI launch and the HF upload API call.
