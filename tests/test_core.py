@@ -276,3 +276,32 @@ def test_serve_style_cleanup_on_sigterm_and_ignored_sigint(tmp_path):
         p.send_signal(sig)
         out, _ = p.communicate(timeout=10)
         assert "cleanup" in out, sig
+
+
+def test_verdict_requires_n_passes_per_cell(tmp_path):
+    root = Path(__file__).resolve().parent.parent
+    def row(i, cmd, outcome, gates="PASS", audit="PASS"):
+        d = tmp_path / f"t{i}"
+        d.mkdir()
+        (d / "eval.json").write_text(json.dumps({"date": "d", "model": "huggingface://a/b", "cmd": cmd, "trial": 1,
+                                                 "outcome": outcome, "gates": gates, "audit": audit, "wall_min": 1}))
+    for i in range(3):
+        row(i, "port", "OK")
+    row(3, "serve", "UI_OK"); row(4, "serve", "UI_OK"); row(5, "serve", "UI_FAIL")
+    run = lambda *a: subprocess.run([sys.executable, str(root / "evals" / "verdict.py"), str(tmp_path), *a],
+                                    capture_output=True, text=True)
+    r = run("--trials", "3", "--models", "a/b", "--cmds", "port,serve")
+    assert r.returncode == 1 and "2/3" in r.stdout and "3/3" in r.stdout
+    assert run("--trials", "2", "--models", "a/b", "--cmds", "port,serve").returncode == 0
+    assert run("--trials", "1", "--models", "a/b,c/d", "--cmds", "port").returncode == 1   # missing model
+
+
+def test_agent_context_is_bounded_for_compaction(home, monkeypatch):
+    """Pi compacts relative to the advertised window: the agent's must fit the KV pool, not the model's 262k."""
+    from weaver import agent_server, servers
+    st = {"data": [{"id": "qwen3.8-27b", "reasoning": True, "context_length": 262144, "limits": {"max_output_tokens": 16384}}]}
+    monkeypatch.setattr(servers, "status", lambda port, timeout=3: st)
+    cfg = config.Config()
+    agent_server.configure_pi(cfg)
+    m = json.loads((home / "pi" / "models.json").read_text())["providers"][pi.LOCAL_PROVIDER]["models"][0]
+    assert m["contextWindow"] == cfg.agent.context_window == 65536 and m["maxTokens"] == 8192

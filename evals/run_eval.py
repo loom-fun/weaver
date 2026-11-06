@@ -32,7 +32,7 @@ SKILLS = REPO / "vendor" / "loom-skills" / "skills"
 
 SUITE = {   # model -> what it exercises. Bolt-E4B is the largest model weaver evals target.
     "huggingface://unsloth/Qwen3.5-0.8B-GGUF": "starter path, gated delta-net hybrid, 262k context; cheapest",
-    "huggingface://unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF": "gemma4 E4B through the gemma4 example",
+    "huggingface://nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB": "gemma4 E4B through the gemma4 example",
 }
 
 
@@ -100,14 +100,29 @@ def stats(home: Path) -> dict:
 
 
 def ui_check(home: Path) -> str:
-    """The playground lists the served model in its chat dropdown (loom-demo-ui's verify recipe)."""
-    chromium = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
-    if not chromium:
-        return "UI_UNCHECKED"
-    dom = subprocess.run([chromium, "--headless", "--no-sandbox", "--virtual-time-budget=8000", "--dump-dom",
-                          "http://127.0.0.1:8090/"], capture_output=True, text=True, timeout=120).stdout
-    ok = '<select id="chatmodel">' in dom and "<option" in dom.split('<select id="chatmodel">', 1)[-1][:2000]
-    return "UI_OK" if ok else "UI_FAIL"
+    """The playground proxies the served model: /api/targets lists weaver's upstream, the upstream's
+    /v1/status lists a ready model, and a chat through the proxy answers. Plain HTTP, so it works on CI
+    runners without a browser."""
+    import urllib.request
+    base = "http://127.0.0.1:8090"
+    try:
+        if "weaver" not in urllib.request.urlopen(f"{base}/api/targets", timeout=10).read().decode():
+            return "UI_FAIL"
+        st = json.load(urllib.request.urlopen(f"{base}/api/weaver/v1/status", timeout=10))
+        ready = [m for m in st.get("data") or [] if m.get("loom", {}).get("registration") == "ready"]
+        if not ready:
+            return "UI_FAIL"
+        m = ready[0]
+        if m.get("loom", {}).get("kind", "text") != "text":
+            return "UI_OK"
+        body = {"model": m["id"], "max_tokens": 32, "messages": [{"role": "user", "content": "Say hello."}],
+                "chat_template_kwargs": {"enable_thinking": False}}
+        req = urllib.request.Request(f"{base}/api/weaver/v1/chat/completions", json.dumps(body).encode(),
+                                     {"Content-Type": "application/json"})
+        msg = json.load(urllib.request.urlopen(req, timeout=600))["choices"][0]["message"]
+        return "UI_OK" if (msg.get("content") or msg.get("reasoning_content") or "").strip() else "UI_FAIL"
+    except (OSError, ValueError, KeyError, IndexError):
+        return "UI_FAIL"
 
 
 def regrade(row: dict) -> None:

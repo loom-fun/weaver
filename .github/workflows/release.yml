@@ -1,7 +1,9 @@
 name: release
 # Push a tag v<version> (matching weaver/__init__.py) to build the bundle, run Tier 0 + Tier 1, and
-# publish weaver-<version>-linux-x64 as a GitHub release asset. Tier 2/3 run on Strix Halo hardware
-# before tagging (evals/README.md); their results go in evals/results.md.
+# publish weaver-<version>-linux-x64 as a GitHub release asset. The agent trials ran on the PR
+# (release-validation.yml, label `release-validation`). After publishing, a DevLab Dispatch Strix Halo
+# runner downloads the release the way a user does and runs evals/release_check.sh on it; if that
+# fails, the release is marked as a pre-release so `latest` doesn't point at it.
 on:
   push:
     tags: ["v*"]
@@ -31,3 +33,25 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" packaging/out/weaver-*-linux-x64 packaging/out/SHA256SUMS \
             --title "weaver $GITHUB_REF_NAME" --notes-file docs/release-notes.md
+
+  post-release-check:
+    needs: release
+    runs-on: [strix-halo, devlab-dispatch, Linux, self-hosted]
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: download the published release and check it
+        run: |
+          set -o pipefail
+          TMPDIR=$RUNNER_TEMP bash evals/release_check.sh "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" 2>&1 | tee release_check.log
+      - if: failure()
+        name: mark the release as a pre-release
+        run: gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --prerelease
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-check
+          path: release_check.log

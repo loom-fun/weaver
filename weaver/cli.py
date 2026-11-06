@@ -12,7 +12,7 @@ CHECKPOINT: huggingface://org/repo[:file.gguf], org/repo, or a huggingface.co UR
 examples:
   weaver init
   weaver serve huggingface://unsloth/Qwen3.5-0.8B-GGUF
-  weaver optimize huggingface://unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF beat-llamacpp 2h
+  weaver optimize huggingface://nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB beat-llamacpp 2h
   weaver agent -m huggingface://loom-fun/unsloth-flint-loom
 """
 
