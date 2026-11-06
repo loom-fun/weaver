@@ -137,3 +137,34 @@ def test_uninstall(tmp_path):
 def test_no_ansi_without_a_terminal(tmp_path):
     r = install(tmp_path / "h", release(tmp_path / "r", "1.0.0"))
     assert "\033" not in r.stdout
+
+
+def test_pr_installs_the_ci_artifact_via_gh(tmp_path):
+    """--pr N: gh finds PR N's head commit, its weaver-release artifact, and downloads the zip."""
+    import zipfile
+    rel = release(tmp_path / "r", "3.0.0-pr")
+    z = tmp_path / "art.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        for n in ("weaver-linux-x64.tar.gz", "SHA256SUMS"):
+            f.write(rel / n, n)
+    fake = tmp_path / "fakebin"
+    fake.mkdir()
+    (fake / "gh").write_text(f"""#!/bin/sh
+case "$*" in
+  *pulls/7*) echo abc1234def5678 ;;
+  *"artifacts?name=weaver-release"*) echo "42 {z.stat().st_size}" ;;
+  *artifacts/42/zip*) cat {z} ;;
+  *) exit 1 ;;
+esac
+""")
+    (fake / "gh").chmod(0o755)
+    home = tmp_path / "h"
+    e = {"HOME": str(home), "PATH": f"{fake}:/usr/bin:/bin", "SHELL": "/bin/bash"}
+    r = subprocess.run(["bash", str(INSTALL), "--pr", "7"], env=e, capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL, start_new_session=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "pull request #7 at abc1234" in r.stdout
+    assert (home / ".local/share/weaver/3.0.0-pr/bin/weaver").is_file()
+    r = subprocess.run(["bash", str(INSTALL), "--pr", "8"], env=e, capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL, start_new_session=True)
+    assert r.returncode != 0 and "could not read PR #8" in r.stderr

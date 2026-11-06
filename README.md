@@ -64,6 +64,15 @@ Run the same command again to upgrade. Options go after `bash -s --`:
 - `--uninstall` removes weaver. Your Hugging Face cache is kept.
 
 `WEAVER_HOME`, `WEAVER_BIN_DIR` and `WEAVER_NO_MODIFY_PATH=1` change where it goes and what it touches.
+To try a pull request before it is released, install its CI build. This needs `gh`, signed in, because
+GitHub serves CI artifacts only to signed-in users:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/loom-fun/weaver/refs/pull/N/head/install.sh | bash -s -- --pr N
+```
+
+Running the normal install command later goes back to the latest release.
+
 If you'd rather read it first: `curl -fsSLO …/install.sh; less install.sh; bash install.sh`.
 
 Or from source, into a Python 3.12+ environment:

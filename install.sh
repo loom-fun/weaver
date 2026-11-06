@@ -9,6 +9,8 @@
 #
 # Options (after `bash -s --` when piped):
 #   --version X       install vX instead of the latest release
+#   --pr N            install pull request #N's CI build (needs gh, signed in: GitHub serves CI
+#                     artifacts only to signed-in users)
 #   --init / --no-init  run `weaver init` without asking / don't offer it
 #   --uninstall       remove weaver (asks first; --yes skips the question)
 # Environment:
@@ -25,10 +27,12 @@ set -euo pipefail
 
 REPO="loom-fun/weaver"
 ASSET="weaver-linux-x64.tar.gz"
-version=""; init_mode=ask; uninstall=0; yes=0
+version=""; pr=""; init_mode=ask; uninstall=0; yes=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --version) version="${2#v}"; shift ;;
+    --version) version="${2#v}"; pr=""; shift ;;
+    --pr) pr="${2#\#}"; shift ;;
+    --pr=*) pr="${1#--pr=}"; pr="${pr#\#}" ;;
     --version=*) version="${1#--version=}"; version="${version#v}" ;;
     --init) init_mode=yes ;;
     --no-init) init_mode=no ;;
@@ -217,24 +221,42 @@ if [ -e /dev/kfd ]; then ok "AMD GPU (/dev/kfd)"
 else warn "no /dev/kfd: weaver installs, but needs an AMD GPU to run models"; fi
 
 # ---- download ------------------------------------------------------------------------------------
+mkdir -p "$home"
+work=$(mktemp -d "$home/.install.XXXXXX")
+tarball="$work/$ASSET"; dlfile=$tarball; total=0
+mb() { echo $(($1 / 1048576)); }
+dl_detail() {
+  local n; n=$(stat -c %s "$dlfile" 2>/dev/null || echo 0)
+  if [ "${total:-0}" -gt 0 ]; then printf '%3d%%  %d/%d MB' $((n * 100 / total)) "$(mb "$n")" "$(mb "$total")"
+  else printf '%d MB' "$(mb "$n")"; fi
+}
+llabel="spinning"
 if [ -n "${WEAVER_RELEASE_URL:-}" ]; then base="${WEAVER_RELEASE_URL%/}"
+elif [ -n "$pr" ]; then
+  # The PR's CI build: the weaver-release artifact ci.yml uploads for the PR's head commit. Unpacked
+  # locally, it is a release dir like any other (tarball + install.sh + SHA256SUMS).
+  case "$pr" in ""|*[!0-9]*) die "--pr takes a pull request number" ;; esac
+  command -v gh >/dev/null || die "--pr needs the GitHub CLI (gh): GitHub serves CI builds only to signed-in users"
+  command -v unzip >/dev/null || die "--pr needs unzip"
+  sha=$(gh api "repos/$REPO/pulls/$pr" -q .head.sha 2>/dev/null) || die "could not read PR #$pr (run: gh auth login)"
+  art=$(gh api "repos/$REPO/actions/artifacts?name=weaver-release&per_page=100" \
+          -q "[.artifacts[] | select(.workflow_run.head_sha == \"$sha\" and (.expired | not))][0] | \"\(.id) \(.size_in_bytes)\"" 2>/dev/null || true)
+  [ -n "$art" ] && [ "$art" != "null null" ] \
+    || die "PR #$pr has no CI build for its head commit ${sha:0:7} yet (see https://github.com/$REPO/pull/$pr/checks)"
+  warn "pull request #$pr at ${sha:0:7}: an unreleased CI build"
+  dlfile="$work/pr.zip"; total=${art#* }
+  fetch_artifact() { gh api "repos/$REPO/actions/artifacts/${art%% *}/zip" > "$dlfile"; }
+  with_progress "downloading PR #$pr" dl_detail -- fetch_artifact || die "could not download the CI build of PR #$pr"
+  unzip -q -o "$dlfile" -d "$work/pr" && rm -f "$dlfile" || die "the CI build of PR #$pr is not a zip"
+  base="file://$work/pr"; dlfile=$tarball; total=0
 elif [ -n "$version" ]; then base="https://github.com/$REPO/releases/download/v$version"
 else
   base="https://github.com/$REPO/releases/latest/download"
   tag=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" 2>/dev/null || true)
   case "$tag" in */tag/v*) version="${tag##*/tag/v}" ;; esac
 fi
-mkdir -p "$home"
-work=$(mktemp -d "$home/.install.XXXXXX")
-tarball="$work/$ASSET"
 total=$( { curl -fsSIL "$base/$ASSET" 2>/dev/null || true; } | tr -d '\r' | awk 'tolower($1)=="content-length:"{n=$2} END{print n+0}')
-mb() { echo $(($1 / 1048576)); }
-dl_detail() {
-  local n; n=$(stat -c %s "$tarball" 2>/dev/null || echo 0)
-  if [ "${total:-0}" -gt 0 ]; then printf '%3d%%  %d/%d MB' $((n * 100 / total)) "$(mb "$n")" "$(mb "$total")"
-  else printf '%d MB' "$(mb "$n")"; fi
-}
-what="weaver${version:+ $version}"
+what="weaver${version:+ $version}${pr:+ from PR #$pr}"
 llabel="spinning"
 with_progress "downloading $what" dl_detail -- curl -fsSL --retry 3 -o "$tarball" "$base/$ASSET" \
   || die "download failed: $base/$ASSET"
