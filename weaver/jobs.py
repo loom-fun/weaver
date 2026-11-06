@@ -145,10 +145,10 @@ def job_header(rt: Runtime, work: Path, verbose: bool) -> list[str]:
 
 
 def new_progress(rt: Runtime, title: str, phases: list[str], work: Path, *, verbose: bool,
-                 budget_s: float | None = None):
+                 budget_s: float | None = None, extra: list[str] | None = None):
     from weaver.progress import JobProgress
     prog = JobProgress(title, phases, work, budget_s=budget_s, verbose=verbose)
-    prog.start(job_header(rt, work, verbose))
+    prog.start((extra or []) + job_header(rt, work, verbose))
     return prog
 
 
@@ -241,6 +241,8 @@ def summarize(progress, ck: Checkpoint, rec: dict, res: pi.TaskResult, kind: str
             n = lo.get("prefill_tokens")
             d.print(f"  prefill   {lo['prefill']:,.0f} tok/s{f' ({n:,}-token prompt)' if n else ''}"
                     f"{vs(lo['prefill'], (ll or {}).get('prefill'))}")
+    if kind == "optimize" and progress.base.get("decode_tps"):
+        d.print(f"  speed up  {progress.speedup_text() or 'no change was kept'}")
     if rec.get("report"):
         d.print(f"  report    {_tilde(rec['report'])}")
     if ok:
@@ -269,6 +271,10 @@ TARGETS = {
     "roofline": "the per-metric targets the roofline step picked (loom-roofline); stop at DONE",
     "beat-llamacpp": "decode and prefill at or above llama.cpp ROCm on the same GGUF",
 }
+TARGET_WORDS = {
+    "roofline": "as close to this hardware's speed limit as is realistic for this model",
+    "beat-llamacpp": "at least as fast as llama.cpp ROCm, on both decode and prefill",
+}
 
 
 def target_text(target: str | None) -> str:
@@ -292,8 +298,10 @@ def optimize(rt: Runtime, cfg: Config, ck: Checkpoint, target: str | None, budge
     work = paths.work_dir(ck.slug)
     work.mkdir(parents=True, exist_ok=True)
     phases = (["optimize", "finalize"] if rec else ["port", "qualify", "optimize", "finalize"])
-    progress = new_progress(rt, f"weaver optimize {ck}  (target: {target or 'roofline'}, budget: "
-                            f"{round(minutes)} min)", phases, work, verbose=verbose, budget_s=minutes * 60)
+    t = (target or "roofline").strip()
+    progress = new_progress(rt, f"weaver optimize {ck}", phases, work, verbose=verbose, budget_s=minutes * 60,
+                            extra=[f"goal      {TARGET_WORDS.get(t, t + ' (relative to llama.cpp ROCm)')}, "
+                                   f"within {round(minutes)} min of optimizing"])
     if not rec:
         rec = port(rt, cfg, ck, no_spec=no_spec, verbose=verbose, progress=progress, for_optimize=True)
         if rec.get("gates") != "PASS":

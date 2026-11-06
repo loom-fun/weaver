@@ -42,18 +42,25 @@ class Phase:
     what: str            # one line: what it does, for people
     log: str | None      # the script's log in the work dir
     script: str | None
+    steps: str = ""      # the steps, in a few words each, for the plan
 
 
 PHASES = {
     "port": Phase("port", "Convert", "build the model's GPU kernels, test each one, get a first answer",
-                  "port.log", "port.sh"),
+                  "port.log", "port.sh",
+                  "download · read its architecture · compile the kernels · test each kernel · first answer"),
     "qualify": Phase("qualify", "Verify", "compare its answers with llama.cpp token by token; measure both",
-                     "qualify.log", "qualify.sh"),
+                     "qualify.log", "qualify.sh",
+                     "pick speculative decoding · pick a llama.cpp build · measure llama.cpp · check answers · "
+                     "work out the speed limit · measure Loom"),
     "optimize": Phase("optimize", "Speed up", "try optimizations; keep each only if faster and still correct",
-                      None, None),
+                      None, None,
+                      "change one thing · rebuild · measure · re-check · keep or undo; until the target or the budget"),
     "finalize": Phase("finalize", "Final check",
                       "every correctness check, up to the full context; final speeds; the report",
-                      "finalize.log", "finalize.sh"),
+                      "finalize.log", "finalize.sh",
+                      "final speeds · every correctness check (the full-context one takes most of the time) · "
+                      "audit · report"),
 }
 
 # Script step label (lower-case keyword) -> (step key, what to call it). First match wins.
@@ -280,6 +287,10 @@ class JobProgress:
         self._thread: threading.Thread | None = None
         self.lock = threading.RLock()
         self.k = 0
+        self.base: dict[str, float] = {}      # optimize: the baseline of each metric (targets.jsonl "start")
+        self.best: dict[str, float] = {}      # optimize: the best kept value so far
+        self.goal: dict[str, float] = {}      # optimize: the roofline target per metric
+        self.tries = 0
 
     # -- helpers
     def gb(self) -> float | None:
@@ -339,7 +350,22 @@ class JobProgress:
         ew = max(len(e) for e in ests)
         for i, (s, est) in enumerate(zip(self.states, ests), 1):
             d.print(f"  {i}. {s.phase.title:<{w}}  {d.dim(f'{est:>{ew}}')}  {s.phase.what}")
+            if s.phase.steps:
+                ind = len(f"  {i}. ") + w + 2 + ew + 2
+                width = max(40, (shutil.get_terminal_size((110, 24)).columns if d.tty else 110) - ind)
+                lines, cur = [], ""
+                for item in s.phase.steps.split(" · "):      # wrap between steps, never inside one
+                    nxt = f"{cur} · {item}" if cur else item
+                    if cur and len(nxt) > width:
+                        lines.append(cur + " ·")
+                        cur = item
+                    else:
+                        cur = nxt
+                for part in lines + [cur]:
+                    d.print(" " * ind + d.dim(part))
         d.print()
+        self._poll_targets()          # an earlier session's baseline and kept changes (nothing printed yet)
+        self.tries = 0
         for p in [self.work / "phases.log"] + [self.work / ph.log for ph in PHASES.values() if ph.log]:
             try:
                 self._offsets[str(p)] = p.stat().st_size      # only what this job writes from now on
@@ -360,6 +386,8 @@ class JobProgress:
                 self._end_phase(cur, ok=True)
             s.status, s.start = "active", now()
             self.agent_note = ""
+            if key == "optimize":
+                self._load_goals()
             n = self.states.index(s) + 1
             est = f"budget {fmt_dur(s.budget_s)}" if s.budget_s else fmt_about(self.phase_estimate(s))
             self.d.print(f"{self.stamp()} {self.d.cyan('▶')} {self.d.bold(f'{n}/{len(self.states)} {s.phase.title}')}"
@@ -481,7 +509,61 @@ class JobProgress:
         self._offsets[str(f)] = off + cut
         return data[:cut].decode("utf-8", "replace").splitlines()
 
+    METRICS = {"decode_tps": ("decode", "tok/s"), "prefill_1000": ("prefill", "tok/s")}
+
+    def _poll_targets(self) -> None:
+        """Speed up: each measured change (bench/targets.jsonl), kept or not, against the baseline."""
+        rows = []
+        for line in self._read_new(self.work / "bench" / "targets.jsonl"):
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+        groups: dict[tuple, dict] = {}
+        for r in rows:
+            m, v = r.get("metric"), r.get("value")
+            if not isinstance(v, (int, float)):
+                continue
+            if r.get("change") == "start":
+                self.base.setdefault(m, v)
+                self.best.setdefault(m, v)
+                continue
+            g = groups.setdefault((r.get("ts"), r.get("change")), {"kept": bool(r.get("kept")), "m": {}})
+            g["m"][m] = v
+        s = self.active()
+        for (_, change), g in groups.items():
+            self.tries += 1
+            parts = []
+            for m, (name, unit) in self.METRICS.items():
+                v = g["m"].get(m)
+                if v is None:
+                    continue
+                b = self.base.get(m)
+                parts.append(f"{name} {v:,.0f} {unit}" + (f" ({(v / b - 1) * 100:+.0f}% vs the start)" if b else ""))
+                if g["kept"]:
+                    self.best[m] = max(self.best.get(m, v), v)
+            what = ", ".join(parts) or "measured"
+            if s and s.phase.key == "optimize":
+                mark = self.d.green("✓ kept") if g["kept"] else self.d.dim("· not kept")
+                self.d.print(f"{self.stamp()}     {mark} {str(change)[:80]}: {what}")
+
+    def _load_goals(self) -> None:
+        try:
+            roof = json.loads((self.work / "bench" / "roofline.json").read_text())
+            self.goal = {m["metric"]: m["target"] for m in roof.get("metrics", []) if m.get("target")}
+        except (OSError, json.JSONDecodeError, KeyError, TypeError):
+            self.goal = {}
+
+    def speedup_text(self) -> str:
+        b, best = self.base.get("decode_tps"), self.best.get("decode_tps")
+        if not b or not best:
+            return ""
+        goal = self.goal.get("decode_tps")
+        return (f"decode {best:,.0f} tok/s ({(best / b - 1) * 100:+.0f}%)" + (f", target {goal:,.0f}" if goal else "")
+                + f", {self.tries} change{'s' if self.tries != 1 else ''} tried")
+
     def _poll_logs(self) -> None:
+        self._poll_targets()
         pl = self.work / "phases.log"
         for line in self._read_new(pl):
             parts = line.split()
@@ -514,8 +596,10 @@ class JobProgress:
             return f"{spin} starting{tail}"
         if s.budget_s:
             used = tn - s.start
+            best = self.speedup_text()
             return (f"{spin} {s.phase.title}: {fmt_dur(used)} of the {fmt_dur(s.budget_s)} budget"
-                    + (d.dim(f" · {self.agent_note[:60]}") if self.agent_note else "") + tail)
+                    + (f" · best so far: {best}" if best else "")
+                    + (d.dim(f" · {self.agent_note[:50]}") if self.agent_note else "") + tail)
         if self.step:
             key, title, t = self.step
             est = self.timings.estimate(s.phase.key, key, self.gb())
@@ -530,7 +614,10 @@ class JobProgress:
         s = self.active()
         tn = now()
         if s and s.budget_s:
-            return f"{s.phase.title}: {fmt_dur(tn - s.start)} of {fmt_dur(s.budget_s)} used"
+            best = self.speedup_text()
+            return (f"{s.phase.title}: {fmt_dur(tn - s.start)} of the {fmt_dur(s.budget_s)} budget used"
+                    + (f"; best so far: {best}" if best else "; no change measured yet")
+                    + (f". Agent: {self.agent_note[:100]}" if self.agent_note else ""))
         if self.step:
             key, title, t = self.step
             est = self.timings.estimate(s.phase.key, key, self.gb()) if s else None

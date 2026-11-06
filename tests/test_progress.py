@@ -91,3 +91,32 @@ def test_step_names_and_gates():
     assert progress.STEP_RE.match("== 2b vision (15:32:15)")
     assert progress.ROUND_RE.match("== round 1: filling llama.cpp references for golden with Loom stopped (15:48:29)")
     assert progress.fmt_about(3 * 3600 + 600) == "about 3 h 10 min" and progress.fmt_dur(65) == "1m 05s"
+
+
+def test_speed_up_shows_each_change_and_the_best_so_far(tmp_path, monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(progress, "now", clock)
+    work = tmp_path / "w"
+    (work / "bench").mkdir(parents=True)
+    tj = work / "bench" / "targets.jsonl"
+    rows = [{"ts": "a", "metric": "decode_tps", "value": 58.0, "change": "start", "kept": True},
+            {"ts": "a", "metric": "prefill_1000", "value": 2082.0, "change": "start", "kept": True}]
+    tj.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (work / "bench" / "roofline.json").write_text(json.dumps({"metrics": [{"metric": "decode_tps", "target": 75}]}))
+    out = io.StringIO()
+    d = progress.Display(out)
+    d.tty = d.color = False
+    p = progress.JobProgress("weaver optimize x/y", ["optimize", "finalize"], work, budget_s=5400, display=d,
+                             timings=progress.Timings(tmp_path / "t.jsonl"))
+    p.start([], watch=False)
+    p.begin_phase("optimize")
+    with open(tj, "a") as f:
+        f.write(json.dumps({"ts": "b", "metric": "decode_tps", "value": 63.2, "change": "int8 matvec", "kept": True}) + "\n")
+        f.write(json.dumps({"ts": "c", "metric": "decode_tps", "value": 57.1, "change": "bigger tiles", "kept": False}) + "\n")
+    clock.t += 200
+    p.tick()
+    text = out.getvalue()
+    assert "change one thing · rebuild · measure" in text           # the plan says what Speed up does
+    assert "✓ kept int8 matvec: decode 63 tok/s (+9% vs the start)" in text
+    assert "· not kept bigger tiles: decode 57 tok/s (-2% vs the start)" in text
+    assert p.speedup_text() == "decode 63 tok/s (+9%), target 75, 2 changes tried"

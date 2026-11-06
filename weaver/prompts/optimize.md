@@ -4,7 +4,10 @@ against llama.cpp ROCm.
 Skill scripts (absolute paths): `{skills}/loom-port-llm/port.sh`, `{skills}/loom-benchmark/scripts/` (qualify.sh,
 finalize.sh, gates.sh, perf.py), `{skills}/loom-setup/scripts/` (serve.sh, stop.sh), `{skills}/loom-optimize/`.
 
-- Package: `{package}`; GGUF: `{gguf}`; bench dir: `{work}/bench` (qualify has already run there).
+- Package: `{package}`; GGUF: `{gguf}`; bench dir: `{work}/bench`. You are continuing a job weaver
+  started: port.sh and qualify.sh already ran in `{work}`. `qualify.log` ends with QUALIFY_RESULT (the
+  gates verdict, baselines, targets and budget), and `bench/roofline.json` has the targets. Read those
+  two, then start the loop. Don't re-run qualify, and don't re-check what they already established.
 - Serve it on port {port} (`serve.sh port {port} amdgpu {memory_bytes} {package}/model.json`, with
   `LOOM_SERVE_STATE={work}/state`).
 - **Target:** {target}
