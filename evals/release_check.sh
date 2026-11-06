@@ -41,10 +41,10 @@ else echo "SKIP  tier 1 (no docker here; the build job runs it)"; fi
 
 export WEAVER_HOME="$dir/home" WEAVER_BIN_DIR="$dir/bin" WEAVER_NO_MODIFY_PATH=1
 W="$dir/bin/weaver"
-# A terminal, as a user has: script(1) gives the installer a pty (so the animation runs and the init
+# A terminal, as a user has: script(1) gives the installer a pty and a TERM (CI runners set none) (so the animation runs and the init
 # prompt reads /dev/tty); the "y" typed ahead answers the prompt.
 check "curl | bash in a terminal: install, animation, init prompt -> weaver init" \
-  "printf 'y\n' | script -qefc \"stty cols 120 rows 40; curl -fsSL '$installer' | bash\" install.log > /dev/null 2>&1"
+  "printf 'y\n' | script -qefc \"stty cols 120 rows 40; export TERM=xterm-256color LANG=C.UTF-8; curl -fsSL '$installer' | bash\" install.log > /dev/null 2>&1"
 sed 's/\x1b\[[0-9;?]*[A-Za-z]//g; s/\x1b[78]//g' install.log > install.txt      # without the escapes
 check "  the loom was drawn (frames in the corner)" "[ \$(grep -o $'\x1b''7' install.log | wc -l) -ge 2 ]"
 check "  sha256 verified" "grep -q 'sha256 ok' install.txt"
