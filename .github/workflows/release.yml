@@ -1,8 +1,9 @@
 name: release
 # Push a tag v<version> (matching weaver/__init__.py) to build the bundle, run Tier 0 + Tier 1, and
-# publish weaver-<version>-linux-x64 as a GitHub release asset. The agent trials ran on the PR
+# publish install.sh, weaver-linux-x64.tar.gz and SHA256SUMS as release assets (install.sh from the
+# latest release is the install command: README). The agent trials ran on the PR
 # (release-validation.yml, label `release-validation`). After publishing, a DevLab Dispatch Strix Halo
-# runner downloads the release the way a user does and runs evals/release_check.sh on it; if that
+# runner installs the release the way a user does (curl | bash, init prompt) and runs evals/release_check.sh on it; if that
 # fails, the release is marked as a pre-release so `latest` doesn't point at it.
 on:
   push:
@@ -26,12 +27,11 @@ jobs:
           test "v$v" = "${GITHUB_REF_NAME}"
       - run: pip install '.[test]' && pytest -q
       - run: packaging/build_bundle.sh
-      - run: evals/tier1_container.sh packaging/out/weaver-*-linux-x64
-      - run: (cd packaging/out && sha256sum weaver-*-linux-x64 > SHA256SUMS)
+      - run: evals/tier1_container.sh packaging/out
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" packaging/out/weaver-*-linux-x64 packaging/out/SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" packaging/out/install.sh packaging/out/weaver-linux-x64.tar.gz packaging/out/SHA256SUMS \
             --title "weaver $GITHUB_REF_NAME" --notes-file docs/release-notes.md
 
   post-release-check:

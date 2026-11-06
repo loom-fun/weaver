@@ -1,0 +1,76 @@
+name: install-check
+# The out-of-box experience, on an AMD DevLab Dispatch Strix Halo runner (never a developer's GPU):
+#   build  (GitHub-hosted)  the release tarball + install.sh, Tier 1 (install.sh in a clean container)
+#   oobe   (DevLab)         evals/release_check.sh on that build: `curl ... | bash` in a terminal with the
+#                           loom animation, the init prompt answered y -> weaver init, then serve + chat
+# Runs on pull requests that touch installation or packaging, and on demand.
+on:
+  pull_request:
+    paths:
+      - install.sh
+      - packaging/**
+      - evals/release_check.sh
+      - evals/tier1_container.sh
+      - weaver/paths.py
+      - weaver/runtime.py
+      - .github/workflows/install-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.LOOM_SKILLS_TOKEN || github.token }}   # loom-skills is private
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install '.[test]' && pytest -q tests/test_install.py
+      - run: packaging/build_bundle.sh
+      - run: evals/tier1_container.sh packaging/out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weaver-release
+          path: |
+            packaging/out/weaver-linux-x64.tar.gz
+            packaging/out/install.sh
+            packaging/out/SHA256SUMS
+          retention-days: 7
+
+  oobe:
+    needs: build
+    # AMD DevLab's pool: `devlab-dispatch` opts in to the pool and `strix-halo` narrows it to gfx1151.
+    runs-on: [strix-halo, devlab-dispatch, Linux, self-hosted]
+    timeout-minutes: 60
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: weaver-release
+          path: release
+      - name: curl | bash, init, serve (evals/release_check.sh)
+        run: |
+          set -o pipefail
+          TMPDIR=$RUNNER_TEMP bash evals/release_check.sh "$PWD/release" 2>&1 | tee oobe.log
+      - if: always()
+        name: collect
+        run: |
+          mkdir -p out; cp oobe.log out/ 2>/dev/null || true
+          d=$(ls -d $RUNNER_TEMP/tmp.*/release 2>/dev/null | tail -1)
+          [ -n "$d" ] && cp "$d"/install.log "$d"/install.txt "$d"/reinstall.log "$d"/tier1.log "$d"/serve.log out/ 2>/dev/null || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oobe-logs
+          path: out

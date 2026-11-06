@@ -1,12 +1,16 @@
 # weaver
 
-One portable binary that takes a Hugging Face LLM to a fast, validated
-[AMD Loom](https://github.com/ROCm/hrx-system) model, running entirely on your machine:
+Takes a Hugging Face LLM to a fast, validated [AMD Loom](https://github.com/ROCm/hrx-system) model,
+running entirely on your machine:
 
 ```sh
-weaver init                                               # once: fetch and start the local agent model
+curl -fsSL https://github.com/loom-fun/weaver/releases/latest/download/install.sh | bash
 weaver serve huggingface://unsloth/Qwen3.5-0.8B-GGUF      # port it, validate it, serve it, open the chat UI
 ```
+
+The installer offers to run `weaver init` (fetch and start the local agent model) at the end.
+
+![weaver installer: a loom weaves in the corner while it downloads](docs/install.gif)
 
 weaver runs the [loom skills](https://github.com/loom-fun/loom-skills) with a **local** coding agent:
 [Pi](https://github.com/earendil-works/pi) driving Qwen3.8-27B
@@ -40,20 +44,36 @@ it (`--no-spec` turns it off).
 
 ## Install
 
-Download the single file from the [latest release](https://github.com/loom-fun/weaver/releases/latest) and run it:
-
 ```sh
-gh release download -R loom-fun/weaver -p 'weaver-*-linux-x64'
-chmod +x weaver-*-linux-x64 && mkdir -p ~/.local/bin && mv weaver-*-linux-x64 ~/.local/bin/weaver
-weaver doctor && weaver init
+curl -fsSL https://github.com/loom-fun/weaver/releases/latest/download/install.sh | bash
 ```
 
-On first run it unpacks itself (150 MB) to `~/.local/share/weaver/<version>/`. That holds:
+It checks the machine, downloads the release tarball (150 MB) and verifies it against the release's
+`SHA256SUMS`. It unpacks the tarball to `~/.local/share/weaver/<version>/` and links `weaver` into
+`~/.local/bin`, adding that to your shell's PATH if it isn't there. Then it asks whether to run
+`weaver init` now. The bundle holds:
 - a relocatable CPython 3.12;
 - `hrx-loom[hf]` 0.1.0;
 - the Pi binary;
 - the pinned loom-skills;
 - the matching hrx-loom-library.
+
+Run the same command again to upgrade. Options go after `bash -s --`:
+- `--version 0.1.4` installs a specific release.
+- `--no-init` and `--init` skip the init question, answering no or yes.
+- `--uninstall` removes weaver. Your Hugging Face cache is kept.
+
+`WEAVER_HOME`, `WEAVER_BIN_DIR` and `WEAVER_NO_MODIFY_PATH=1` change where it goes and what it touches.
+To try a pull request before it is released, install its CI build. This needs `gh`, signed in, because
+GitHub serves CI artifacts only to signed-in users:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/loom-fun/weaver/refs/pull/N/head/install.sh | bash -s -- --pr N
+```
+
+Running the normal install command later goes back to the latest release.
+
+If you'd rather read it first: `curl -fsSLO …/install.sh; less install.sh; bash install.sh`.
 
 Or from source, into a Python 3.12+ environment:
 
@@ -69,7 +89,8 @@ so `~/.pi` is not touched unless you pass `weaver agent --user-config`.
 
 ```sh
 git submodule update --init
-packaging/build_bundle.sh          # -> packaging/out/weaver-<version>-linux-x64
+packaging/build_bundle.sh          # -> packaging/out/{weaver-linux-x64.tar.gz,install.sh,SHA256SUMS}
+WEAVER_RELEASE_URL=file://$PWD/packaging/out bash install.sh       # install that build
 ```
 
 Every downloaded input is pinned with its sha256 in `packaging/versions.env`.
