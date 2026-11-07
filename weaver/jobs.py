@@ -83,8 +83,11 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
               progress=None, stop_at: float | None = None, wrap_up: str | None = None) -> pi.TaskResult:
     """One agent task. A session that ends without WEAVER_RESULT (output limit, a lost thread) is
     continued in place up to MAX_CONTINUES times; servers the job left running are stopped after.
-    stop_at + wrap_up: a time limit for part of the task (optimize: the Speed up budget). Once it passes,
-    the session is stopped at the next safe point (no tool running) and continued with wrap_up."""
+    Two points where weaver steps in, each at the next safe point (no tool running) and once:
+      - stop_at + wrap_up: a time limit for part of the task (optimize: the Speed up budget); the
+        session continues with wrap_up;
+      - finalize.sh passed and the agent hasn't reported within FINISH_GRACE_S: it continues with
+        FINISH_NOW (report the result, no more checks)."""
     from weaver import servers
     servers.interruptible()
     note = progress.note if progress else log
@@ -94,18 +97,29 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
     if not progress:
         log(f"agent session in {work} (log: {work / 'agent.jsonl'})")
     deadline = time.time() + timeout_min * 60 if timeout_min else None
+    stops = []
+    if stop_at and wrap_up:
+        stops.append(("budget", lambda: time.time() > stop_at, wrap_up,
+                      "the time budget for this part is used up: weaver asked the agent to keep the best build "
+                      "so far and move on"))
+    if progress is not None:
+        stops.append(("finish", lambda: progress.finalize_passed_for() > FINISH_GRACE_S, FINISH_NOW,
+                      "the final check passed: weaver asked the agent to report the result now"))
     continues = 0
     try:
         while True:
             left = deadline - time.time() if deadline else None
+            active = list(stops)
             res = pi.run_task(prompt, work, model=model, skills_dir=rt.skills, skills=AGENT_SKILLS,
                               system_files=[prompt_file("rules.md")], agent_dir=paths.pi_dir(), base_env=base,
                               thinking=cfg.agent.thinking, cont=cont, verbose=verbose, timeout_s=left,
-                              progress=progress, stop_at=stop_at if wrap_up else None)
-            if res.stopped_at_deadline and wrap_up:
-                note("the time budget for this part is used up: weaver asked the agent to keep the best "
-                     "build so far and move on")
-                prompt, cont, stop_at, wrap_up = wrap_up, True, None, None
+                              progress=progress,
+                              stop_at=(lambda: any(c() for _, c, _, _ in active)) if active else None)
+            if res.stopped_at_deadline:
+                hit = next(s for s in active if s[1]())
+                note(hit[3])
+                stops.remove(hit)
+                prompt, cont = hit[2], True
                 continue
             if res.result is not None or res.timed_out or continues == MAX_CONTINUES:
                 break
@@ -118,6 +132,11 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
             cleanup_servers(rt, work, cfg.defaults.port_port)
     (work / "weaver_result.json").write_text(json.dumps(res.result or {}, indent=1))
     return res
+
+
+FINISH_GRACE_S = 90
+FINISH_NOW = ("finalize.sh has passed: the job is done. Don't run more checks and don't stop any server "
+              "(weaver does). Reply now with the WEAVER_RESULT line as the last line of your message.")
 
 
 def record_port(ck: Checkpoint, res: pi.TaskResult, kind: str) -> dict:
@@ -295,8 +314,12 @@ def summarize(progress, ck: Checkpoint, rec: dict, res: pi.TaskResult, kind: str
             n = lo.get("prefill_tokens")
             d.print(f"  prefill   {lo['prefill']:,.0f} tok/s{f' ({n:,}-token prompt)' if n else ''}"
                     f"{vs(lo['prefill'], (ll or {}).get('prefill'))}")
-    if kind == "optimize" and progress.base.get("decode_tps"):
-        d.print(f"  speed up  {progress.speedup_text() or 'no change was kept'}")
+    if kind == "optimize":
+        if progress.kept:
+            d.print(f"  speed up  {progress.kept} of {progress.tries} changes kept: {progress.speedup_text()}")
+        else:
+            d.print(f"  speed up  no change was kept within the budget ({progress.tries} tried); the numbers "
+                    "above are the verified port")
     if rec.get("report"):
         d.print(f"  report    {_tilde(rec['report'])}")
     if ok:

@@ -347,3 +347,50 @@ else:
     calls = (work / "calls.txt").read_text().splitlines()
     assert len(calls) == 2 and "--continue" in calls[1] and "budget is used up" in calls[1]
     assert (work / "mid_tool.txt").exists()                        # the running tool was allowed to finish
+
+
+def test_run_agent_asks_for_the_result_once_finalize_passed(tmp_path, monkeypatch):
+    """finalize.sh printed FINALIZE PASS and the agent keeps going: past the grace period it is stopped at a
+    safe point and asked for the result line only."""
+    fake = tmp_path / "pi"
+    fake.write_text(f"""#!{sys.executable}
+import json, os, sys, time
+w = os.environ["WEAVER_WORK"]
+open(os.path.join(w, "calls.txt"), "a").write(" ".join(sys.argv[1:]).replace(chr(10), " ") + chr(10))
+if "--continue" in sys.argv:
+    print(json.dumps({{"type": "message_end", "message": {{"role": "assistant", "stopReason": "stop",
+          "content": [{{"type": "text", "text": 'WEAVER_RESULT {{"status": "ok"}}'}}]}}}}), flush=True)
+else:
+    print(json.dumps({{"type": "tool_execution_start", "args": {{"command": "finalize.sh x"}}}}), flush=True)
+    open(os.path.join(w, "finalize.log"), "w").write(chr(10).join(["== 4/4 report (10:00:00)", "FINALIZE PASS: x/report.html", ""]))
+    print(json.dumps({{"type": "tool_execution_end", "result": {{}}}}), flush=True)
+    for _ in range(300):    # the agent goes on "confirming the report path"
+        print(json.dumps({{"type": "message_update", "assistantMessageEvent": {{"delta": "hm"}}}}), flush=True)
+        time.sleep(0.1)
+""")
+    fake.chmod(0o755)
+    monkeypatch.setenv("WEAVER_PI", str(fake))
+    from weaver import agent_server, progress
+    monkeypatch.setattr(agent_server, "ensure_running", lambda *a, **k: 8079)
+    monkeypatch.setattr(agent_server, "configure_pi", lambda *a, **k: "weaver-local/x")
+    monkeypatch.setattr(jobs, "cleanup_servers", lambda rt, work, port=None: None)
+    monkeypatch.setattr(jobs, "FINISH_GRACE_S", 0.5)
+
+    class RT:
+        skills = tmp_path
+
+        def env(self, **kw):
+            return {**os.environ, **{k: str(v) for k, v in kw.items()}}
+
+    import io, time
+    work = tmp_path / "work"
+    work.mkdir()
+    d = progress.Display(io.StringIO())
+    prog = progress.JobProgress("t", ["finalize"], work, display=d, timings=progress.Timings(tmp_path / "t.jsonl"))
+    prog.start([], watch=False)
+    t0 = time.time()
+    res = jobs.run_agent(RT(), config.Config(), work, "optimize", progress=prog)
+    assert time.time() - t0 < 20 and res.result == {"status": "ok"}
+    calls = (work / "calls.txt").read_text().splitlines()
+    assert len(calls) == 2 and "Reply now with the WEAVER_RESULT line" in calls[1]
+    assert "the final check passed: weaver asked the agent to report" in d.out.getvalue()

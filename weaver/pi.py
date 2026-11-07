@@ -230,9 +230,9 @@ def parse_result(text: str) -> dict | None:
 def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: list[str],
              system_files: list[Path], agent_dir: Path, base_env: dict, thinking: str = "medium",
              cont: bool = False, verbose: bool = False, timeout_s: float | None = None,
-             progress=None, stop_at: float | None = None) -> TaskResult:
+             progress=None, stop_at=None) -> TaskResult:
     """progress: anything with event(e) and line(text) (weaver.progress.JobProgress); default: a line per step.
-    stop_at: an epoch time after which the session is stopped at the next safe point, i.e. while no tool
+    stop_at: an epoch time (or a function that says when) after which the session is stopped at the next safe point, i.e. while no tool
     is running (never in the middle of a measurement or a build), so the caller can continue it with new
     instructions."""
     pi_bin = binary()
@@ -271,7 +271,8 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
                     tools_running += 1
                 elif e.get("type") == "tool_execution_end":
                     tools_running = max(0, tools_running - 1)
-                if stop_at and time.time() > stop_at and tools_running == 0:
+                due = stop_at() if callable(stop_at) else (stop_at and time.time() > stop_at)
+                if due and tools_running == 0:
                     p.terminate()
                     at_deadline = True
                     break

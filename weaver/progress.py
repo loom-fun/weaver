@@ -309,6 +309,7 @@ class JobProgress:
         self.tries = 0
         self.kept = 0
         self.reused = 0                       # gates "PASSED earlier on this exact build" in the current step
+        self.finalized_at: float | None = None  # finalize.sh printed FINALIZE PASS
 
     # -- helpers
     expected_gb: float | None = None     # the GGUF's size from Hugging Face, before it is downloaded
@@ -362,7 +363,11 @@ class JobProgress:
             d.print("  " + line)
         d.print()
         total = sum(self.phase_estimate(s) for s in self.states)
-        source = "from earlier runs on this machine" if self.timings.rows else "from reference runs on Strix Halo"
+        mine = {r.get("phase") for r in self.timings.rows}
+        keys = [s.phase.key for s in self.states if not s.budget_s]
+        source = ("from earlier runs on this machine" if keys and all(k in mine for k in keys) else
+                  "from reference runs on Strix Halo" if not any(k in mine for k in keys) else
+                  "from earlier runs on this machine where there are any, else reference runs on Strix Halo")
         d.print(f"{d.bold('Plan')} {d.dim('(' + fmt_about(total) + ' in total; estimates ' + source + ')')}")
         w = max(len(s.phase.title) for s in self.states)
         ests = [f"budget {fmt_about(s.budget_s).replace('about ', '')}" if s.budget_s else
@@ -454,6 +459,12 @@ class JobProgress:
         mark = self.d.green("✓") if ok else self.d.red("✗")
         self.d.print(f"{self.stamp()} {mark} {self.d.bold(s.phase.title)} "
                      f"{'done' if ok else 'did not finish'} in {fmt_dur(s.end - s.start)}")
+
+    def finalize_passed_for(self) -> float:
+        """Seconds since finalize.sh reported PASS (0 if it hasn't)."""
+        with self.lock:
+            self._poll_logs()
+            return now() - self.finalized_at if self.finalized_at else 0.0
 
     def fmt_total(self) -> str:
         return fmt_dur(now() - self.t0)
@@ -617,6 +628,8 @@ class JobProgress:
                 continue
             for line in self._read_new(self.work / p.log):
                 line = line.rstrip()
+                if key == "finalize" and line.startswith("FINALIZE PASS"):
+                    self.finalized_at = now()
                 if ROUND_RE.match(line):       # before STEP_RE: a round line carries a time too
                     self.check = "getting llama.cpp's reference answers (Loom paused)"
                     continue
