@@ -59,6 +59,7 @@ hrx-loom $HRX_LOOM_VERSION
 library $rev
 pi $PI_VERSION
 skills $(git -C "$repo/vendor/loom-skills" rev-parse HEAD)
+skills_date $(git -C "$repo/vendor/loom-skills" log -1 --format=%cs)
 built $(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 

@@ -21,7 +21,7 @@ def fetch(rt: Runtime, cfg: Config, log=print) -> None:
     """loom-fetch the pinned card. Weights come from (and are reused from) the HF cache."""
     out = package_dir()
     fetch_bin = rt.loom_root / ".venv" / "bin" / "loom-fetch"
-    log(f"fetching the agent model ({cfg.agent.card})")
+    log("downloading the local agent model (Qwen3.8-27B, about 17 GB; skipped for files already in your Hugging Face cache)")
     subprocess.run([str(fetch_bin), cfg.agent.card, f"--output={out}", "--no-input"],
                    env=rt.env(), check=True)
 
@@ -32,7 +32,7 @@ def ensure_running(rt: Runtime, cfg: Config, log=print) -> int:
         return port
     if not installed():
         raise SystemExit("the agent model is not installed: run `weaver init`")
-    log(f"starting the agent server (Qwen3.8-27B, MTP) on :{port}")
+    log(f"starting the local agent model (Qwen3.8-27B) on port {port}; loading it takes about a minute")
     servers.start(rt, NAME, port, cfg.agent.memory_bytes, [package_dir() / "model.json"])
     return port
 

@@ -25,10 +25,23 @@ MTP speculative decoding, 262k context) on loom-serve. Nothing goes to a cloud m
 | `weaver serve CHECKPOINT` | Serves the model on `:8080` and opens the Loom playground on `:8090`. A published Loom package or catalog model is fetched and served directly; anything else is ported first. Ctrl-C stops everything. |
 | `weaver port CHECKPOINT` | The agent ports the checkpoint (`port.sh`), qualifies it against llama.cpp ROCm (gates, baselines, speculative-decoding choice) and finalizes it (full gates, audit, report). No optimization loop. |
 | `weaver optimize CHECKPOINT [TARGET] [BUDGET]` | Ports if needed, then optimizes. TARGET is `roofline` (default), `beat-llamacpp` or e.g. `decode+30%`. BUDGET is e.g. `90m` or `3h` (default: the skills' 30 min × the local-agent slowdown factor). |
+| `weaver validate CHECKPOINT` | The full-context check on a finished port: one prompt as long as the model's whole context, with a fact hidden at the end. `port` and `optimize` skip it because it is slow (often longer than everything else in the final check) and rarely finds anything; run it before you upload. No agent involved. |
 | `weaver upload CHECKPOINT HF-ORG` | Publishes the package (programs, `model.json` pointing at the upstream GGUF, `model.json.lock`) and a model card in the [loom-fun](https://huggingface.co/loom-fun) style. Shows a preview and asks before publishing. |
 | `weaver agent [-m CHECKPOINT]` | An interactive Pi session with the loom skills on the local agent model, or, with `-m`, on CHECKPOINT (served first, like `lemonade launch pi -m`). |
 | `weaver agent-server start\|stop\|status\|bench` | Manage the agent model server (`:8079`). |
 | `weaver doctor` | What this machine is missing, and how to fix it. |
+| `weaver skills [update \| use PATH \| use bundled]` | Which loom skills the agent uses and how they compare with loom-skills main; switch to the latest, or to your own checkout (`WEAVER_SKILLS=PATH` for one command). |
+
+While a port or optimize runs, weaver shows its plan, checks off each step of the skills' scripts as it
+finishes, and estimates the time left. The estimates come from how long each step took on this machine
+before (`~/.local/share/weaver/timings.jsonl`, scaled by model size). The tasks are:
+- **Convert:** build the model's GPU kernels, test each one, and get a first answer.
+- **Verify:** compare its answers with llama.cpp token by token, and measure both engines.
+- **Speed up** (optimize only): try optimizations, keeping each one only if it is faster and still correct.
+- **Final check:** take the final speed measurements, re-check its answers on the final build and
+  write the report. The full-context check is not part of it: `weaver validate` runs that.
+
+`-v` also shows every command the agent runs.
 
 CHECKPOINT is `huggingface://org/repo[:file.gguf]`, `org/repo`, or a huggingface.co URL. By default
 ports use plain Q4_K_M from your HF cache, and speculative decoding is on whenever the GGUF supports

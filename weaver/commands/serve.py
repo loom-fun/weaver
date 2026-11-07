@@ -54,9 +54,11 @@ def run(rt: Runtime, cfg: Config, ck: Checkpoint, *, port: int | None, ui_port: 
     servers.interruptible()
     s = model_server.resolve(rt, cfg, ck, confirm=_confirm, no_spec=no_spec, verbose=verbose, preset=preset)
     if not keep_agent and servers.running(agent_server.NAME):
-        jobs.log("stopping the agent server to free its memory (--keep-agent keeps it)")
+        jobs.log(f"stopping the local agent model to give its {cfg.reserved_gib:.0f} GiB to this one "
+                 "(--keep-agent keeps it running)")
         agent_server.stop(rt)
-    jobs.log(f"serving {s.model_json} on :{port} ({s.memory_bytes / 2**30:.0f} GiB budget)")
+    jobs.log(f"loading the model on port {port} (up to {s.memory_bytes / 2**30:.0f} GiB); the first load "
+             "compiles its kernels, so this can take a few minutes")
     m = model_server.serve(rt, NAME, port, s)
     url = start_ui(rt, ui_port, port)
     print(f"\n  model   {m.get('id')}   http://127.0.0.1:{port}/v1  (OpenAI-compatible)")
@@ -66,7 +68,7 @@ def run(rt: Runtime, cfg: Config, ck: Checkpoint, *, port: int | None, ui_port: 
     try:
         while servers.running(NAME):
             time.sleep(2)
-        jobs.log("the model server exited:\n" + servers.log_tail(NAME))
+        jobs.log("the model server stopped unexpectedly. Its last messages:\n" + servers.log_tail(NAME))
         return 1
     except KeyboardInterrupt:
         print()
