@@ -297,7 +297,9 @@ def summarize(progress, ck: Checkpoint, rec: dict, res: pi.TaskResult, kind: str
         return
     if ok:
         audited = rec.get("audit") == "PASS"
-        what = ("optimized and checked: every correctness check and the final audit passed" if kind == "optimize"
+        what = (("optimized and checked: every correctness check and the final audit passed" if progress.kept else
+                 "checked, but no faster build was found within the budget: every correctness check and the "
+                 "final audit passed") if kind == "optimize"
                 else "running on Loom: every correctness check passed" + (" and the final audit passed" if audited else ""))
         d.print(f"{d.green('✓')} {d.bold(f'{ck} is {what}.')} {d.dim('(' + took + ')')}")
     else:
