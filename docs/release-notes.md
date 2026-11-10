@@ -10,6 +10,8 @@ The tarball holds a relocatable Python, the Loom SDK (`hrx-loom` 0.1.0), the Pi 
 skills and the Loom model library. The installer unpacks it to `~/.local/share/weaver/` and offers to run
 `weaver init`, which fetches the local agent model (~17 GB). Run the command again to upgrade.
 
+weaver is also on PyPI, for an existing Python 3.12+ environment: `pip install weaver-loom`.
+
 Requirements: Linux x86-64 with glibc 2.39 or newer (Ubuntu 24.04+), an AMD GPU with `/dev/kfd` (developed
 on Strix Halo gfx1151), and 64 GB of RAM or more (128 GB recommended). See the README for every command,
 and `evals/results.md` for what was tested.
