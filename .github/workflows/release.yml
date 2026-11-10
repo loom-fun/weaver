@@ -4,7 +4,8 @@ name: release
 # latest release is the install command: README). The agent trials ran on the PR
 # (release-validation.yml, label `release-validation`). After publishing, a DevLab Dispatch Strix Halo
 # runner installs the release the way a user does (curl | bash, init prompt) and runs evals/release_check.sh on it; if that
-# fails, the release is marked as a pre-release so `latest` doesn't point at it.
+# fails, the release is marked as a pre-release so `latest` doesn't point at it. If it passes, the
+# sdist and wheel are published to PyPI as weaver-loom (Trusted Publishing, environment `pypi`).
 on:
   push:
     tags: ["v*"]
@@ -55,3 +56,22 @@ jobs:
         with:
           name: release-check
           path: release_check.log
+
+  pypi:
+    needs: post-release-check
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/weaver-loom/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.LOOM_SKILLS_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine && python -m build && twine check dist/*
+      - uses: pypa/gh-action-pypi-publish@release/v1
