@@ -131,8 +131,19 @@ def regrade(row: dict) -> None:
     if not rec or not rec.get("package"):
         return
     out = home / "regrade"
+    # The trial's own LOOM_ROOT shim (weaver builds it under WEAVER_HOME) and the llama.cpp build its qualify
+    # picked: on a fresh runner there is no ~/loom and no llama.cpp outside the trial.
+    env = dict(os.environ, EVAL_SKILLS=str(SKILLS))
+    if (home / "loom").is_dir():
+        env["LOOM_ROOT"] = str(home / "loom")
+    for pick in (home / "work").glob("*/bench/llamacpp_pick.json") if (home / "work").is_dir() else []:
+        ranked = json.loads(pick.read_text()).get("ranked") or []
+        if ranked and ranked[0].get("dir"):
+            env.setdefault("LLAMACPP_DIR", ranked[0]["dir"])
     r = subprocess.run(["bash", str(SKILLS / "loom-improve" / "scripts" / "eval.sh"), str(out), rec["package"], rec["gguf"]],
-                       env=dict(os.environ, EVAL_SKILLS=str(SKILLS)), capture_output=True, text=True)
+                       env=env, capture_output=True, text=True)
+    (out / "eval.log").parent.mkdir(parents=True, exist_ok=True)
+    (out / "eval.log").write_text(r.stdout + "\n--- stderr\n" + r.stderr)
     row["regrade"] = (r.stdout.strip().splitlines() or ["?"])[-1]
     ev = out / "eval.json"
     if ev.is_file():

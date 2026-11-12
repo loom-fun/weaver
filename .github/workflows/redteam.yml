@@ -1,0 +1,111 @@
+name: redteam
+# Red-team the loom-fun model cards: can a one-shot `weaver optimize` (local Qwen3.8-27B agent, latest
+# loom-skills) reproduce what a card claims, on a checkpoint that is NOT the card's own repo?
+# Each model gets its own branch `redteam/<slug>` whose evals/redteam/target.json names it:
+#   {"checkpoint": "org/repo", "card": "loom-fun/...", "cmd": "optimize", "budget": "90m"}
+# A push of that file runs: build the bundle (GitHub-hosted) -> one DevLab Dispatch Strix Halo trial.
+on:
+  push:
+    branches: ["redteam/**"]
+    paths: ["evals/redteam/target.json"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: redteam-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      checkpoint: ${{ steps.t.outputs.checkpoint }}
+      cmd: ${{ steps.t.outputs.cmd }}
+      budget: ${{ steps.t.outputs.budget }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - id: t
+        run: |
+          python3 -c "
+          import json; t = json.load(open('evals/redteam/target.json'))
+          print('checkpoint=' + t['checkpoint']); print('cmd=' + t.get('cmd', 'optimize')); print('budget=' + t.get('budget', ''))
+          " >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install '.[test]' && pytest -q
+      - run: packaging/build_bundle.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weaver-bundle
+          path: |
+            packaging/out/weaver-linux-x64.tar.gz
+            packaging/out/install.sh
+            packaging/out/SHA256SUMS
+          retention-days: 7
+
+  trial:
+    needs: build
+    runs-on: [strix-halo, devlab-dispatch, Linux, self-hosted]
+    timeout-minutes: 600
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive     # the regrade uses the vendored skills' frozen eval.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: weaver-bundle
+          path: bundle
+      - name: machine
+        run: |
+          free -g; nproc; cat /proc/cpuinfo | grep -m1 "model name"; df -h "$RUNNER_TEMP" | tail -1
+      - name: install + init
+        run: |
+          export WEAVER_HOME=$RUNNER_TEMP/weaver-home WEAVER_BIN_DIR=$RUNNER_TEMP/bin WEAVER_NO_MODIFY_PATH=1
+          echo "WEAVER_HOME=$WEAVER_HOME" >> "$GITHUB_ENV"
+          W=$WEAVER_BIN_DIR/weaver; echo "W=$W" >> "$GITHUB_ENV"
+          WEAVER_RELEASE_URL=file://$PWD/bundle bash bundle/install.sh --no-init
+          "$W" doctor || true
+          "$W" init
+      - name: "weaver ${{ needs.build.outputs.cmd }} ${{ needs.build.outputs.checkpoint }}"
+        run: |
+          PY=$WEAVER_HOME/current/python/bin/python3
+          B="${{ needs.build.outputs.budget }}"
+          "$PY" -I evals/run_eval.py "huggingface://${{ needs.build.outputs.checkpoint }}" ${{ needs.build.outputs.cmd }} \
+            --weaver "$W" --stall-min 40 --regrade ${B:+--budget "$B"}
+      - if: always()
+        name: collect
+        run: |
+          mkdir -p out
+          cp evals/redteam/target.json out/ || true
+          for d in evals/runs/*/*/; do
+            n=out/$(basename "$d"); mkdir -p "$n"
+            cp "$d"/eval.json "$d"/weaver.log "$n"/ 2>/dev/null || true
+            cp "$d"/state/weaver-agent.log "$n"/agent-server.log 2>/dev/null || true
+            cp -r "$d"/models "$n"/registry 2>/dev/null || true
+            for w in "$d"/work/*/; do
+              cp "$w"/phases.log "$w"/reference.json "$w"/*.log "$n"/ 2>/dev/null || true
+              cp "$w"/pkg/llm_config.json "$w"/pkg/model.json "$n"/ 2>/dev/null || true
+              mkdir -p "$n"/bench
+              find "$w"/bench -maxdepth 1 -type f \( -name '*.md' -o -name '*.json' -o -name '*.jsonl' -o -name '*.log' -o -name '*.html' \) \
+                -size -20M -exec cp {} "$n"/bench/ \; 2>/dev/null || true
+              find "$w" -name agent.jsonl -size -200M -exec cp {} "$n"/ \; 2>/dev/null || true
+            done
+            [ -d "$d"/regrade ] && find "$d"/regrade -maxdepth 1 -type f -size -20M -exec cp {} "$n"/ \; 2>/dev/null
+            mkdir -p "$n"/regrade && [ -d "$d"/regrade ] && cp -r "$d"/regrade/. "$n"/regrade/ 2>/dev/null || true
+          done
+          tail -5 evals/results.md > out/results-row.md || true
+          du -sh out
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redteam-trial
+          path: out
+          retention-days: 30
