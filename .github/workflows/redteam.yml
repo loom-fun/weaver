@@ -79,7 +79,7 @@ jobs:
           PY=$WEAVER_HOME/current/python/bin/python3
           B="${{ needs.build.outputs.budget }}"
           "$PY" -I evals/run_eval.py "huggingface://${{ needs.build.outputs.checkpoint }}" ${{ needs.build.outputs.cmd }} \
-            --weaver "$W" --stall-min 40 --regrade ${B:+--budget "$B"}
+            --weaver "$W" --stall-min 60 --regrade ${B:+--budget "$B"}
       - if: always()
         name: collect
         run: |
