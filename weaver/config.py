@@ -35,6 +35,8 @@ class Defaults:
     port_port: int = 8160          # port.sh / gates serving port for the model being ported
     # Agent-driven runs are slower than the Claude Code trials e2e_budget.py was calibrated on.
     agent_slowdown: float = 3.0
+    # A port's hard stop. The slowest passing port in the DevLab trials took ~3 h (gpt-oss-20b, 178 min).
+    port_timeout_min: float = 300
 
 
 @dataclass

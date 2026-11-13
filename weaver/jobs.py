@@ -88,7 +88,7 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
             res = pi.run_task(prompt, work, model=model, skills_dir=rt.skills, skills=AGENT_SKILLS,
                               system_files=[prompt_file("rules.md")], agent_dir=paths.pi_dir(), base_env=base,
                               thinking=cfg.agent.thinking, cont=cont, verbose=verbose, timeout_s=left)
-            if res.result is not None or res.timed_out:
+            if res.result is not None or res.timed_out or res.looped:
                 break
             idle = idle + 1 if (cont and res.tool_calls == 0) else 0
             if idle >= MAX_CONTINUES or turn == MAX_SESSION_TURNS - 1:
@@ -141,13 +141,18 @@ def port(rt: Runtime, cfg: Config, ck: Checkpoint, *, force: bool = False, no_sp
     prompt = prompt_file("port.md").read_text().format(
         spec=ck.spec, work=work, port=cfg.defaults.port_port, skills=rt.skills,
         memory_gib=target_budget_gib(cfg), spec_env="SPEC=off " if no_spec else "")
-    res = run_agent(rt, cfg, work, prompt, verbose=verbose)
+    # Hard stop: a port has no budget of its own, and a stuck agent otherwise runs until something outside kills it.
+    res = run_agent(rt, cfg, work, prompt, verbose=verbose, timeout_min=cfg.defaults.port_timeout_min)
     rec = record_port(ck, res, "port")
     _report(rec, res)
     return rec
 
 
 def _report(rec: dict, res: pi.TaskResult) -> None:
+    if res.looped:
+        log("stopped: the agent was repeating the same tool call (a loop)")
+    elif res.timed_out:
+        log("stopped: the session reached its time limit")
     if not res.result:
         log(f"the agent finished without a WEAVER_RESULT line: see {res.log}")
         return

@@ -334,3 +334,18 @@ def test_run_agent_continues_while_the_agent_makes_progress(tmp_path, monkeypatc
     monkeypatch.setattr(jobs.paths, "pi_dir", lambda: tmp_path)
     jobs.run_agent(RT(), config.Config(), tmp_path, "go")
     assert len(seen) == turns and seen[0] is False and all(seen[1:])
+
+
+def test_progress_counts_identical_tool_calls_in_a_row():
+    import io
+    prog = pi.Progress(out=io.StringIO())
+    call = {"type": "tool_execution_start", "toolName": "bash", "args": {"command": "sed -n 280,360p log"}}
+    for _ in range(3):
+        prog.event(call)
+    assert prog.repeats == 3
+    prog.event({"type": "tool_execution_start", "toolName": "bash", "args": {"command": "ls"}})
+    assert prog.repeats == 1
+
+
+def test_port_has_a_hard_stop():
+    assert config.Config().defaults.port_timeout_min > 0
