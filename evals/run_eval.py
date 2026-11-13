@@ -9,7 +9,8 @@ usage: evals/run_eval.py MODEL CMD [--trials N] [--weaver BIN] [--budget 90m] [-
 Each trial:
   - its own WEAVER_HOME (evals/runs/<model>/<cmd>-<n>); the HF cache and the agent model package are
     shared (the agent dir is symlinked from the main WEAVER_HOME, so it is fetched once);
-  - a watchdog: a trial whose agent.jsonl doesn't grow for --stall-min minutes is stopped (STALLED);
+  - a watchdog: a trial that writes nothing (agent transcript, work-dir logs and bench files) for --stall-min
+    minutes is stopped (STALLED);
   - grading by outcome: the WEAVER_RESULT line, final gates and audit (from the trial's registry
     record), wall clock vs the budget, agent tool calls and tokens;
   - --regrade: re-check the package with the skills' frozen evaluator on a quiet GPU
@@ -66,7 +67,7 @@ def trial(model: str, cmd: str, n: int, weaver: list[str], budget: str | None, s
                 os.killpg(p.pid, signal.SIGINT)
                 p.wait(timeout=60)
                 break
-            size = sum(f.stat().st_size for f in home.rglob("agent.jsonl"))
+            size = activity(home)
             if size != last_size:
                 last_size, last_change = size, time.time()
             elif time.time() - last_change > stall_min * 60:
@@ -82,6 +83,20 @@ def trial(model: str, cmd: str, n: int, weaver: list[str], budget: str | None, s
            "status": rec.get("status"), "draft": rec.get("draft"), "summary": rec.get("summary"), **agent_stats}
     (home / "eval.json").write_text(json.dumps(row, indent=1))
     return row
+
+
+def activity(home: Path) -> int:
+    """How much the trial has written: the agent's transcript, and every log and benchmark file under the work
+    dir. weaver tells the agent to run qualify.sh / finalize.sh in the foreground for up to 2 hours, so the
+    transcript alone stays still through a healthy qualify (a 40-min Qwen3.5-9B qualify was killed as STALLED)."""
+    total = 0
+    for pat in ("agent.jsonl", "work/**/*.log", "work/**/*.jsonl", "work/**/*.json", "state/*.log"):
+        for f in home.glob(pat) if "/" in pat else home.rglob(pat):
+            try:
+                total += f.stat().st_size
+            except OSError:
+                pass
+    return total
 
 
 def stats(home: Path) -> dict:
@@ -131,8 +146,19 @@ def regrade(row: dict) -> None:
     if not rec or not rec.get("package"):
         return
     out = home / "regrade"
+    # The trial's own LOOM_ROOT shim (weaver builds it under WEAVER_HOME) and the llama.cpp build its qualify
+    # picked: on a fresh runner there is no ~/loom and no llama.cpp outside the trial.
+    env = dict(os.environ, EVAL_SKILLS=str(SKILLS))
+    if (home / "loom").is_dir():
+        env["LOOM_ROOT"] = str(home / "loom")
+    for pick in (home / "work").glob("*/bench/llamacpp_pick.json") if (home / "work").is_dir() else []:
+        ranked = json.loads(pick.read_text()).get("ranked") or []
+        if ranked and ranked[0].get("dir"):
+            env.setdefault("LLAMACPP_DIR", ranked[0]["dir"])
     r = subprocess.run(["bash", str(SKILLS / "loom-improve" / "scripts" / "eval.sh"), str(out), rec["package"], rec["gguf"]],
-                       env=dict(os.environ, EVAL_SKILLS=str(SKILLS)), capture_output=True, text=True)
+                       env=env, capture_output=True, text=True)
+    (out / "eval.log").parent.mkdir(parents=True, exist_ok=True)
+    (out / "eval.log").write_text(r.stdout + "\n--- stderr\n" + r.stderr)
     row["regrade"] = (r.stdout.strip().splitlines() or ["?"])[-1]
     ev = out / "eval.json"
     if ev.is_file():

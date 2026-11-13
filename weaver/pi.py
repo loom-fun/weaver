@@ -149,17 +149,23 @@ class TaskResult:
     final_text: str
     stop_reason: str | None = None
     timed_out: bool = False
+    tool_calls: int = 0
+    looped: bool = False
 
 
 class Progress:
     """One status line per agent step, from Pi's JSON events."""
 
     HEARTBEAT_S = 60
+    # The same tool call this many times in a row is a loop, not work: a gemma4 port on DevLab re-ran one
+    # `sed -n 280,360p` hundreds of times over ~9 h until the job limit (agent.jsonl kept growing throughout).
+    REPEAT_LIMIT = 25
 
     def __init__(self, out=sys.stderr, verbose: bool = False):
         self.out, self.verbose, self.t0 = out, verbose, time.time()
         self.tokens = 0
         self.tool_calls = 0
+        self.last_call, self.repeats = None, 0
         self.streamed = 0            # characters streamed in the current message
         self.last_line = time.time()
 
@@ -183,6 +189,9 @@ class Progress:
         if t == "tool_execution_start":
             self.tool_calls += 1
             args = e.get("args") or {}
+            key = (e.get("toolName"), json.dumps(args, sort_keys=True))
+            self.repeats = self.repeats + 1 if key == self.last_call else 1
+            self.last_call = key
             what = args.get("command") or args.get("path") or json.dumps(args)[:80]
             self.line(f"{e.get('toolName', 'tool')}: {str(what).splitlines()[0][:140] if what else ''}")
         elif t == "message_end":
@@ -226,7 +235,7 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
     prog = Progress(verbose=verbose)
     final_text = ""
     stop_reason = None
-    timed_out = False
+    timed_out = looped = False
     t0 = time.time()
     with open(log, "a") as lf, subprocess.Popen(cmd, cwd=work, env=env(agent_dir, base_env),
                                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -246,6 +255,11 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
                     texts = [c.get("text", "") for c in e["message"].get("content") or [] if c.get("type") == "text"]
                     if any(t.strip() for t in texts):
                         final_text = "\n".join(texts)
+                if prog.repeats >= prog.REPEAT_LIMIT:
+                    prog.line(f"the agent repeated the same tool call {prog.repeats} times: stopping it (a loop)")
+                    p.terminate()
+                    looped = True
+                    break
                 if timeout_s and time.time() - t0 > timeout_s:
                     prog.line(f"time limit ({timeout_s / 60:.0f} min) reached: stopping the agent")
                     p.terminate()
@@ -257,7 +271,8 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
     result = parse_result(final_text)
     prog.line(f"agent finished: {prog.tool_calls} tool calls, {prog.tokens} output tokens")
     return TaskResult(ok=result is not None and p.returncode == 0, result=result, log=log,
-                      seconds=time.time() - t0, final_text=final_text, stop_reason=stop_reason, timed_out=timed_out)
+                      seconds=time.time() - t0, final_text=final_text, stop_reason=stop_reason, timed_out=timed_out,
+                      tool_calls=prog.tool_calls, looped=looped)
 
 
 def launch(model: str, *, agent_dir: Path, base_env: dict, skills_dir: Path | None,
