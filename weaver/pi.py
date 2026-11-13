@@ -149,6 +149,7 @@ class TaskResult:
     final_text: str
     stop_reason: str | None = None
     timed_out: bool = False
+    tool_calls: int = 0
 
 
 class Progress:
@@ -257,7 +258,8 @@ def run_task(prompt: str, work: Path, *, model: str, skills_dir: Path, skills: l
     result = parse_result(final_text)
     prog.line(f"agent finished: {prog.tool_calls} tool calls, {prog.tokens} output tokens")
     return TaskResult(ok=result is not None and p.returncode == 0, result=result, log=log,
-                      seconds=time.time() - t0, final_text=final_text, stop_reason=stop_reason, timed_out=timed_out)
+                      seconds=time.time() - t0, final_text=final_text, stop_reason=stop_reason, timed_out=timed_out,
+                      tool_calls=prog.tool_calls)
 
 
 def launch(model: str, *, agent_dir: Path, base_env: dict, skills_dir: Path | None,
