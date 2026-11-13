@@ -40,7 +40,12 @@ def log(msg: str) -> None:
     print(f"weaver: {msg}", file=sys.stderr, flush=True)
 
 
+# A session that stops without WEAVER_RESULT is continued. Only continuations in which the agent did nothing
+# (no tool call) count against MAX_CONTINUES: a local agent on a 90-min optimize can hit the output limit while
+# thinking several times and still be making progress between them (a Qwen3.5-9B optimize was ended after
+# 14 of 90 min, mid-ablation, by a flat limit of 3). MAX_SESSION_TURNS bounds the total; the deadline still holds.
 MAX_CONTINUES = 3
+MAX_SESSION_TURNS = 20
 
 
 def continue_prompt(res: pi.TaskResult) -> str:
@@ -77,15 +82,19 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
     log(f"agent session in {work} (log: {work / 'agent.jsonl'})")
     deadline = time.time() + timeout_min * 60 if timeout_min else None
     try:
-        for attempt in range(MAX_CONTINUES + 1):
+        idle = 0
+        for turn in range(MAX_SESSION_TURNS):
             left = deadline - time.time() if deadline else None
             res = pi.run_task(prompt, work, model=model, skills_dir=rt.skills, skills=AGENT_SKILLS,
                               system_files=[prompt_file("rules.md")], agent_dir=paths.pi_dir(), base_env=base,
                               thinking=cfg.agent.thinking, cont=cont, verbose=verbose, timeout_s=left)
-            if res.result is not None or res.timed_out or attempt == MAX_CONTINUES:
+            if res.result is not None or res.timed_out:
+                break
+            idle = idle + 1 if (cont and res.tool_calls == 0) else 0
+            if idle >= MAX_CONTINUES or turn == MAX_SESSION_TURNS - 1:
                 break
             log(f"no WEAVER_RESULT yet (stop: {res.stop_reason}); continuing the session "
-                f"({attempt + 1}/{MAX_CONTINUES})")
+                f"({'no progress ' + str(idle) + '/' + str(MAX_CONTINUES) if idle else 'still working'})")
             prompt, cont = continue_prompt(res), True
     finally:
         if not keep_servers:

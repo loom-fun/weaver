@@ -305,3 +305,32 @@ def test_agent_context_is_bounded_for_compaction(home, monkeypatch):
     agent_server.configure_pi(cfg)
     m = json.loads((home / "pi" / "models.json").read_text())["providers"][pi.LOCAL_PROVIDER]["models"][0]
     assert m["contextWindow"] == cfg.agent.context_window == 65536 and m["maxTokens"] == 8192
+
+
+@pytest.mark.parametrize("calls, turns", [
+    ([5, 4, 0, 3, 0, 0, 0], 7),        # progress between output-limit stops resets the idle count
+    ([5, 0, 0, 0, 9], 4),              # three continued turns with no tool call: give up
+    ([1] * 30, jobs.MAX_SESSION_TURNS),  # always busy, never a result: the total cap holds
+])
+def test_run_agent_continues_while_the_agent_makes_progress(tmp_path, monkeypatch, calls, turns):
+    seen = []
+
+    def fake_run_task(prompt, work, **kw):
+        n = calls[len(seen)]
+        seen.append(kw["cont"])
+        return pi.TaskResult(ok=False, result=None, log=work / "agent.jsonl", seconds=1, final_text="",
+                             stop_reason="length", tool_calls=n)
+
+    class RT:
+        skills = tmp_path
+
+        def env(self, **kw):
+            return {}
+
+    monkeypatch.setattr(pi, "run_task", fake_run_task)
+    monkeypatch.setattr(jobs.agent_server, "ensure_running", lambda *a: None)
+    monkeypatch.setattr(jobs.agent_server, "configure_pi", lambda cfg: "m")
+    monkeypatch.setattr(jobs, "cleanup_servers", lambda *a: None)
+    monkeypatch.setattr(jobs.paths, "pi_dir", lambda: tmp_path)
+    jobs.run_agent(RT(), config.Config(), tmp_path, "go")
+    assert len(seen) == turns and seen[0] is False and all(seen[1:])

@@ -98,7 +98,6 @@ jobs:
                 -size -20M -exec cp {} "$n"/bench/ \; 2>/dev/null || true
               find "$w" -name agent.jsonl -size -200M -exec cp {} "$n"/ \; 2>/dev/null || true
             done
-            [ -d "$d"/regrade ] && find "$d"/regrade -maxdepth 1 -type f -size -20M -exec cp {} "$n"/ \; 2>/dev/null
             mkdir -p "$n"/regrade && [ -d "$d"/regrade ] && cp -r "$d"/regrade/. "$n"/regrade/ 2>/dev/null || true
           done
           tail -5 evals/results.md > out/results-row.md || true
