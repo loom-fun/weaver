@@ -83,9 +83,9 @@ def run_commands(repo_id: str, model_id: str, memory_bytes) -> str:
     short = re.sub(r"[^a-z0-9.]+", "-", model_id.split("/")[-1].lower()).strip("-")
     mem = f" --memory_bytes={memory_bytes}" if memory_bytes else ""
     return ("```sh\n"
-            'pip install "hrx-loom[hf]"\n'
-            f"loom-fetch https://huggingface.co/{repo_id}/resolve/main/model.json --materialize=copy --output={short}\n"
-            f"loom-serve --model={short}/model.json --device=amdgpu{mem}\n"
+            'pipx install "hrx-loom[hf]==0.2.0"\n'
+            f"loom-fetch huggingface:{repo_id} --materialize=copy --output={short}\n"
+            f"loom-serve --model={short} --device=amdgpu{mem}\n"
             "```")
 
 

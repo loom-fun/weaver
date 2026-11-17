@@ -1,5 +1,7 @@
 # M0 findings (2026-11-04, Strix Halo gfx1151, 128 GB)
 
+Historical: measured on hrx-loom 0.1.0 and the 0.1.0 agent card. Weaver now pins hrx-loom 0.2.0 (see release-notes.md); the numbers have not been re-measured.
+
 | Question | Answer |
 |---|---|
 | Agent model on the pinned SDK | `loom-fun/bartowski-Qwen3.8-27B-loom` (rev `15e5509`) serves with **hrx-loom 0.1.0** from PyPI. Ready in 2 s with warm kernel and weight caches. `/v1/status` reports `context_length` 262144, `max_output_tokens` 16384, `reasoning: true` and reasoning levels none/low/medium/xhigh. |

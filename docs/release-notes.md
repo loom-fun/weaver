@@ -1,3 +1,10 @@
+## hrx-loom 0.2.0
+
+- Weaver now runs on the Loom SDK hrx-loom 0.2.0 (PyPI) and the loom-fun model cards built for it, including the agent model (Qwen3.8-27B, preset `chat`). Packages built for 0.1.0 no longer load (the card field `presets.*.execution.pool_capacity` is gone). `weaver init` fetches the new agent model over an old one and updates a saved `config.toml` that still names the 0.1.0 card.
+- Cards are fetched as `huggingface:ORG/REPO[:PRESET][@REV]`, and `weaver upload` writes that form (and `pipx install "hrx-loom[hf]==0.2.0"`) into the card's How to run block.
+- Stock hosts (8 MiB memlock limit): weaver starts loom-serve with `--parameter_mode=preload` when the weights, up to 40 GB, fit in host memory (ROCm/hrx-system#3332). `weaver doctor` shows the limit and what to do for larger packages.
+- The loom-skills submodule moves to the 0.2.0 skills.
+
 Install with one command, then serve a model:
 
 ```sh

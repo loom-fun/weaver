@@ -24,9 +24,9 @@ repository and checks them against `model.json.lock`.
 ## How to run
 
 ```sh
-pip install "hrx-loom[hf]"
-loom-fetch https://huggingface.co/<repo id>/resolve/main/model.json --materialize=copy --output=<short name>
-loom-serve --model=<short name>/model.json --device=amdgpu --memory_bytes=<memory_bytes>
+pipx install "hrx-loom[hf]==0.2.0"
+loom-fetch huggingface:<repo id> --materialize=copy --output=<short name>
+loom-serve --model=<short name> --device=amdgpu --memory_bytes=<memory_bytes>
 ```
 
 The server listens on `127.0.0.1:8080` and accepts OpenAI-style `/v1/chat/completions` requests.
