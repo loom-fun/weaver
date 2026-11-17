@@ -94,7 +94,7 @@ def resolve(rt: Runtime, cfg: Config, ck: Checkpoint, *, allow_port: bool = True
             confirm=None, no_spec: bool = False, verbose: bool = False, preset: str | None = None) -> Servable:
     budget = jobs.target_budget_gib(cfg, agent_running=False) * 2**30
     if ck.repo and _hf_has_model_json(ck.repo):
-        mj, chosen = _fetch(rt, f"https://huggingface.co/{ck.repo}/resolve/main/model.json",
+        mj, chosen = _fetch(rt, f"huggingface:{ck.repo}",
                             paths.home() / "packages" / ck.slug, preset)
         return Servable("package", mj, _memory_for_fetched(mj.parent, budget), preset=chosen)
     card = find_catalog(rt.library, ck)

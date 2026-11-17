@@ -228,7 +228,7 @@ def test_upload_card_gets_run_commands(tmp_path):
     r.write_text("# X for AMD Loom\n\n## How to run\n\n```sh\npip install \"hrx-loom[hf]\"\nloom-serve --model=x/model.json\n```\n\nThe server...\n")
     upload.ensure_run_commands(r, "me/a-loom", "Qwen/Qwen3.5-0.8B", 8000000000)
     t = r.read_text()
-    assert "loom-fetch https://huggingface.co/me/a-loom/resolve/main/model.json --materialize=copy --output=qwen3.5-0.8b" in t
+    assert "loom-fetch huggingface:me/a-loom --materialize=copy --output=qwen3.5-0.8b" in t
     assert "--memory_bytes=8000000000" in t and t.count("## How to run") == 1 and "The server..." in t
     r.write_text("# card without the section\n")
     upload.ensure_run_commands(r, "me/a-loom", "m", None)
@@ -349,3 +349,15 @@ def test_progress_counts_identical_tool_calls_in_a_row():
 
 def test_port_has_a_hard_stop():
     assert config.Config().defaults.port_timeout_min > 0
+
+
+def test_host_args_preload_on_stock_memlock(monkeypatch):
+    from weaver import servers
+    monkeypatch.setattr(servers, "memlock_limit", lambda: 8 * 2**20)
+    monkeypatch.setattr(servers, "_mem_available", lambda: 100 * 2**30)
+    assert servers.host_args(17_000_000_000) == ["--parameter_mode=preload"]
+    assert servers.host_args(45_000_000_000) == []        # above the preload limit
+    monkeypatch.setattr(servers, "_mem_available", lambda: 20 * 2**30)
+    assert servers.host_args(17_000_000_000) == []        # the host copy would not fit
+    monkeypatch.setattr(servers, "memlock_limit", lambda: None)
+    assert servers.host_args(17_000_000_000) == []        # unlimited memlock: the default mode works

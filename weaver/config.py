@@ -7,12 +7,13 @@ from weaver import paths
 # The agent model: loom-fun's Qwen3.8-27B Q4_K_M package, MTP speculative decoding (3 proposals)
 # to the full 262k context. Pinned to a revision so a release never changes its agent underneath.
 AGENT_CARD_REPO = "loom-fun/bartowski-Qwen3.8-27B-loom"
-AGENT_CARD_REVISION = "15e5509c42d165aab0fb0b68d55092733e78b220"
+AGENT_CARD_PRESET = "chat"   # the card also has chat-r9700; loom-fetch needs one named
+AGENT_CARD_REVISION = "3699b63f59258b8c8c301fbdf13a69d5ad7ca007"   # TODO at promotion: the loom-fun repo revision of the 0.2.0 card
 
 
 @dataclass
 class AgentConfig:
-    card: str = f"https://huggingface.co/{AGENT_CARD_REPO}/resolve/{AGENT_CARD_REVISION}/model.json"
+    card: str = f"huggingface:{AGENT_CARD_REPO}:{AGENT_CARD_PRESET}@{AGENT_CARD_REVISION}"
     model_id: str = "qwen3.8-27b"
     port: int = 8079
     # The card's 45 GB sizes 4 concurrent rows; weaver's sessions use one or two. 32 GB served a
@@ -58,6 +59,8 @@ def load() -> Config:
         for k, v in data.get("agent", {}).items():
             if hasattr(cfg.agent, k):
                 setattr(cfg.agent, k, v)
+        if cfg.agent.card.startswith(f"https://huggingface.co/{AGENT_CARD_REPO}/resolve/"):
+            cfg.agent.card = AgentConfig.card   # saved by weaver < 0.2: the hrx-loom 0.1.0 card; 0.2.0 needs the new one
         for k, v in data.get("defaults", {}).items():
             if hasattr(cfg.defaults, k):
                 setattr(cfg.defaults, k, v)

@@ -1,5 +1,6 @@
 """The agent model: loom-fun/bartowski-Qwen3.8-27B-loom on loom-serve, MTP speculative decoding,
 262k context. Fetched by `weaver init`, served on config.agent.port (8079) as `weaver-agent`."""
+import shutil
 import subprocess
 
 from weaver import paths, pi, servers
@@ -14,13 +15,17 @@ def package_dir():
 
 
 def installed() -> bool:
-    return (package_dir() / "model.json").is_file()
+    """A fetched card of this SDK. A package fetched before hrx-loom 0.2.0 declares presets.*.execution.pool_capacity,
+    which 0.2.0 rejects: it counts as not installed, so `weaver init` fetches the current card over it."""
+    mj = package_dir() / "model.json"
+    return mj.is_file() and "pool_capacity" not in mj.read_text()
 
 
 def fetch(rt: Runtime, cfg: Config, log=print) -> None:
     """loom-fetch the pinned card. Weights come from (and are reused from) the HF cache."""
     out = package_dir()
     fetch_bin = rt.loom_root / ".venv" / "bin" / "loom-fetch"
+    shutil.rmtree(out, ignore_errors=True)   # a package from an older SDK; weights are links into the HF cache
     log(f"fetching the agent model ({cfg.agent.card})")
     subprocess.run([str(fetch_bin), cfg.agent.card, f"--output={out}", "--no-input"],
                    env=rt.env(), check=True)

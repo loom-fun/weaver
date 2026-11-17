@@ -44,7 +44,7 @@ tests/                            # pytest, no GPU
 
 This follows lemonade-sdk/vllm-rocm: prebuilt pieces only, nothing compiled.
 1. **Python**: relocatable CPython 3.12 from astral-sh/python-build-standalone (pinned and sha-checked).
-2. **site-packages**: `hrx-loom[hf]==0.1.0` (the version the skills pin), the tools-venv deps that
+2. **site-packages**: `hrx-loom[hf]==0.2.0` (the version the skills pin), the tools-venv deps that
    `install_loom.sh` installs (gguf, numpy, tokenizers, requests, jinja2, fastapi, uvicorn, httpx),
    `huggingface_hub`, and weaver itself.
 3. **Pi**: the official `pi-linux-x64` release binary from earendil-works/pi, pinned. M0 confirms it
