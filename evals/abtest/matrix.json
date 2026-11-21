@@ -1,0 +1,11 @@
+{
+ "agents": {
+  "qwen": {"card": "huggingface:loom-fun/bartowski-Qwen3.8-27B-loom:chat@b415cb8f75f7966bc89ce79988ce31fec2e71966", "model_id": "qwen3.8-27b"},
+  "inkling": {"card": "huggingface:loom-fun/unsloth-Inkling-2-Mini-loom:chat@277f099b5003b725e099d48caa1a2c0db1f9b650", "model_id": "Inkling-2-Mini"}
+ },
+ "tasks": {
+  "port-llama3b": {"checkpoint": "bartowski/Llama-3.2-3B-Instruct-GGUF", "cmd": "port", "budget": ""},
+  "opt-qwen35-9b": {"checkpoint": "bartowski/Qwen_Qwen3.5-9B-GGUF", "cmd": "optimize", "budget": "120m"}
+ },
+ "trials": [1, 2, 3]
+}
