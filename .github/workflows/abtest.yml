@@ -77,7 +77,19 @@ jobs:
           printf '[agent]\ncard = "%s"\nmodel_id = "%s"\n' '${{ matrix.card }}' '${{ matrix.model_id }}' > "$WEAVER_HOME/config.toml"
           cat "$WEAVER_HOME/config.toml"
           "$W" doctor || true
-          t0=$(date +%s); "$W" init; echo "init_s=$(( $(date +%s) - t0 ))"
+          t0=$(date +%s)
+          if ! "$W" init; then
+            # A card whose preset context does not fit the agent's memory pool (Inkling: 1M tokens/row):
+            # cap the fetched preset at CTX_CAP (weaver tells Pi 64k anyway) and start again.
+            CAP='${{ matrix.ctx_cap }}'; [ -n "$CAP" ] || exit 1
+            "$WEAVER_HOME/current/python/bin/python3" -I -c "
+          import json, os, sys; f = sys.argv[1]; d = json.load(open(f))
+          for p in d['presets'].values(): p['execution']['context_capacity'] = min(p['execution']['context_capacity'], int(sys.argv[2]))
+          os.unlink(f) if os.path.islink(f) else None; open(f, 'w').write(json.dumps(d, indent=1)); print('capped', f)
+          " "$WEAVER_HOME/agent/qwen3.8-27b/model.json" "$CAP"
+            "$W" init
+          fi
+          echo "init_s=$(( $(date +%s) - t0 ))"
           "$W" agent-server bench || true
       - name: "weaver ${{ matrix.cmd }} ${{ matrix.checkpoint }}"
         run: |
