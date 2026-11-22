@@ -52,8 +52,10 @@ def checks() -> list[tuple[str, bool, str, str]]:
     r.append(("AMD GPU", bool(gfx), ", ".join(sorted(set(gfx))) or "none found",
               "weaver needs an AMD GPU (developed on gfx1151, Strix Halo)"))
     ram = jobs.ram_gib()
-    r.append(("memory", ram >= 60, f"{ram:.0f} GiB RAM, {_gtt_gib():.0f} GiB GTT",
-              "the 27B agent model reserves 48 GB; 64 GB of RAM is the minimum, 128 GB recommended"))
+    # 128 GB machines report ~122-125 GiB. The agent reserves 48 GB; the model being ported gets the rest of
+    # the skills' 60 % budget (~30 GiB), which a smaller machine cannot give it.
+    r.append(("memory", ram >= 110, f"{ram:.0f} GiB RAM, {_gtt_gib():.0f} GiB GTT",
+              "weaver needs a 128 GB machine: the 27B agent model reserves 48 GB, the model being ported needs the rest"))
     home = paths.home()
     probe = home if home.exists() else Path.home()
     free = shutil.disk_usage(probe).free / 2**30
