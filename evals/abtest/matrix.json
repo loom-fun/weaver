@@ -1,0 +1,9 @@
+{
+ "agents": {
+  "qwen": {"card": "huggingface:loom-fun/bartowski-Qwen3.8-27B-loom:chat@b415cb8f75f7966bc89ce79988ce31fec2e71966", "model_id": "qwen3.8-27b"}
+ },
+ "tasks": {
+  "opt-qwen35-9b": {"checkpoint": "bartowski/Qwen_Qwen3.5-9B-GGUF", "cmd": "optimize", "budget": "120m"}
+ },
+ "trials": [1, 2, 3]
+}

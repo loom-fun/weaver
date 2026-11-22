@@ -1,0 +1,131 @@
+name: abtest
+# A/B the weaver agent model: the same weaver bundle and tasks, only [agent] card/model_id differ
+# (written to config.toml before `weaver init`). evals/abtest/matrix.json lists agents, tasks, trials.
+on:
+  push:
+    branches: ["abtest/**"]
+    paths: ["evals/abtest/matrix.json"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: abtest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - id: m
+        run: |
+          python3 -c "
+          import json; m = json.load(open('evals/abtest/matrix.json'))
+          inc = [dict(agent=a, task=t, trial=n, **m['agents'][a], **m['tasks'][t])
+                 for t in m['tasks'] for a in m['agents'] for n in m['trials']]
+          print('matrix=' + json.dumps({'include': inc}))
+          " >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install '.[test]' && pytest -q
+      - run: packaging/build_bundle.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weaver-bundle
+          path: |
+            packaging/out/weaver-linux-x64.tar.gz
+            packaging/out/install.sh
+            packaging/out/SHA256SUMS
+          retention-days: 7
+
+  trial:
+    needs: build
+    name: "${{ matrix.task }} / ${{ matrix.agent }} #${{ matrix.trial }}"
+    runs-on: [strix-halo, devlab-dispatch, Linux, self-hosted]
+    timeout-minutes: 600
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.build.outputs.matrix) }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          name: weaver-bundle
+          path: bundle
+      - name: machine
+        run: |
+          free -g; nproc; cat /proc/cpuinfo | grep -m1 "model name"; df -h "$RUNNER_TEMP" | tail -1; hostname
+      - name: install + init (agent ${{ matrix.agent }})
+        run: |
+          export WEAVER_HOME=$RUNNER_TEMP/weaver-home WEAVER_BIN_DIR=$RUNNER_TEMP/bin WEAVER_NO_MODIFY_PATH=1
+          echo "WEAVER_HOME=$WEAVER_HOME" >> "$GITHUB_ENV"
+          W=$WEAVER_BIN_DIR/weaver; echo "W=$W" >> "$GITHUB_ENV"
+          WEAVER_RELEASE_URL=file://$PWD/bundle bash bundle/install.sh --no-init
+          mkdir -p "$WEAVER_HOME"
+          printf '[agent]\ncard = "%s"\nmodel_id = "%s"\n' '${{ matrix.card }}' '${{ matrix.model_id }}' > "$WEAVER_HOME/config.toml"
+          cat "$WEAVER_HOME/config.toml"
+          "$W" doctor || true
+          t0=$(date +%s)
+          if ! "$W" init; then
+            # A card whose preset context does not fit the agent's memory pool (Inkling: 1M tokens/row):
+            # cap the fetched preset at CTX_CAP (weaver tells Pi 64k anyway) and start again.
+            CAP='${{ matrix.ctx_cap }}'; [ -n "$CAP" ] || exit 1
+            "$WEAVER_HOME/current/python/bin/python3" -I -c "
+          import json, os, sys; f = sys.argv[1]; d = json.load(open(f))
+          for p in d['presets'].values(): p['execution']['context_capacity'] = min(p['execution']['context_capacity'], int(sys.argv[2]))
+          os.unlink(f) if os.path.islink(f) else None; open(f, 'w').write(json.dumps(d, indent=1)); print('capped', f)
+          " "$WEAVER_HOME/agent/qwen3.8-27b/model.json" "$CAP"
+            "$W" init
+          fi
+          echo "init_s=$(( $(date +%s) - t0 ))"
+          # What the agent is told: reasoning levels from the card, and whether Pi sends reasoning_effort.
+          curl -s http://127.0.0.1:8079/v1/status | python3 -c "import json,sys; [print('status', m['id'], m.get('supported_reasoning_levels'), m.get('reasoning')) for m in json.load(sys.stdin)['data']]" || true
+          python3 -c "import json; p=json.load(open('$WEAVER_HOME/pi/models.json'))['providers']['weaver-local']; print('pi compat', p['compat']); print('pi levels', [m.get('thinkingLevelMap') for m in p['models']])" || true
+          grep -E 'memory|agent' "$WEAVER_HOME/config.toml" || true
+          "$W" agent-server bench || true
+      - name: "weaver ${{ matrix.cmd }} ${{ matrix.checkpoint }}"
+        run: |
+          PY=$WEAVER_HOME/current/python/bin/python3
+          B="${{ matrix.budget }}"
+          "$PY" -I evals/run_eval.py "huggingface://${{ matrix.checkpoint }}" ${{ matrix.cmd }} \
+            --weaver "$W" --stall-min 60 --regrade ${B:+--budget "$B"}
+      - if: always()
+        name: collect
+        run: |
+          mkdir -p out
+          echo '{"agent": "${{ matrix.agent }}", "task": "${{ matrix.task }}", "trial": ${{ matrix.trial }}}' > out/cell.json
+          cp "$WEAVER_HOME/state/weaver-agent.log" out/agent-server-init.log 2>/dev/null || true
+          for d in evals/runs/*/*/; do
+            n=out/$(basename "$d"); mkdir -p "$n"
+            cp "$d"/eval.json "$d"/weaver.log "$n"/ 2>/dev/null || true
+            cp "$d"/state/weaver-agent.log "$n"/agent-server.log 2>/dev/null || true
+            cp -r "$d"/models "$n"/registry 2>/dev/null || true
+            for w in "$d"/work/*/; do
+              cp "$w"/phases.log "$w"/reference.json "$w"/*.log "$n"/ 2>/dev/null || true
+              cp "$w"/pkg/llm_config.json "$w"/pkg/model.json "$n"/ 2>/dev/null || true
+              mkdir -p "$n"/bench
+              find "$w"/bench -maxdepth 1 -type f \( -name '*.md' -o -name '*.json' -o -name '*.jsonl' -o -name '*.log' \) \
+                -size -20M -exec cp {} "$n"/bench/ \; 2>/dev/null || true
+              find "$w" -name agent.jsonl -size -200M -exec cp {} "$n"/ \; 2>/dev/null || true
+            done
+            mkdir -p "$n"/regrade && [ -d "$d"/regrade ] && cp -r "$d"/regrade/. "$n"/regrade/ 2>/dev/null || true
+          done
+          du -sh out
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: abtest-${{ matrix.task }}-${{ matrix.agent }}-${{ matrix.trial }}
+          path: out
+          retention-days: 30
