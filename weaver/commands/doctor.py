@@ -53,7 +53,7 @@ def checks() -> list[tuple[str, bool, str, str]]:
               "weaver needs an AMD GPU (developed on gfx1151, Strix Halo)"))
     ram = jobs.ram_gib()
     r.append(("memory", ram >= 60, f"{ram:.0f} GiB RAM, {_gtt_gib():.0f} GiB GTT",
-              "the 27B agent model needs about 42 GiB; 64 GB of RAM is the minimum, 128 GB recommended"))
+              "the 27B agent model reserves 48 GB; 64 GB of RAM is the minimum, 128 GB recommended"))
     home = paths.home()
     probe = home if home.exists() else Path.home()
     free = shutil.disk_usage(probe).free / 2**30

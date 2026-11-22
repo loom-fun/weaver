@@ -46,6 +46,23 @@ def log(msg: str) -> None:
 # 14 of 90 min, mid-ablation, by a flat limit of 3). MAX_SESSION_TURNS bounds the total; the deadline still holds.
 MAX_CONTINUES = 3
 MAX_SESSION_TURNS = 20
+# The agent's own loom-serve can fail mid-session ("model is unavailable": 2 of 3 Qwen3.5-9B optimize
+# sessions on DevLab, 2026-11-21); Pi then errors out within seconds and every continuation fails the same
+# way. weaver saves what the server reported and restarts it, up to this many times per job.
+MAX_AGENT_RESTARTS = 2
+
+
+def agent_server_down(rt: Runtime, cfg: Config, work: Path) -> bool:
+    """True when the agent model is not ready. Saves /v1/status and the server log for diagnosis first."""
+    from weaver import servers
+    if servers.ready(cfg.agent.port, cfg.agent.model_id):
+        return False
+    f = work / "state" / f"agent-server-down-{time.strftime('%Y%m%d-%H%M%S')}.txt"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(f"/v1/status: {json.dumps(servers.status(cfg.agent.port))}\n\n"
+                 f"log tail:\n{servers.log_tail(agent_server.NAME, 200)}\n")
+    log(f"the agent server is not ready (details: {f})")
+    return True
 
 
 def continue_prompt(res: pi.TaskResult) -> str:
@@ -82,7 +99,7 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
     log(f"agent session in {work} (log: {work / 'agent.jsonl'})")
     deadline = time.time() + timeout_min * 60 if timeout_min else None
     try:
-        idle = 0
+        idle = restarts = 0
         for turn in range(MAX_SESSION_TURNS):
             left = deadline - time.time() if deadline else None
             res = pi.run_task(prompt, work, model=model, skills_dir=rt.skills, skills=AGENT_SKILLS,
@@ -90,6 +107,16 @@ def run_agent(rt: Runtime, cfg: Config, work: Path, prompt: str, *, verbose: boo
                               thinking=cfg.agent.thinking, cont=cont, verbose=verbose, timeout_s=left)
             if res.result is not None or res.timed_out or res.looped:
                 break
+            if agent_server_down(rt, cfg, work):
+                if restarts >= MAX_AGENT_RESTARTS:
+                    log(f"the agent server failed {restarts + 1} times; giving up")
+                    break
+                restarts += 1
+                log(f"restarting the agent server ({restarts}/{MAX_AGENT_RESTARTS}) and continuing the session")
+                agent_server.stop(rt)
+                agent_server.ensure_running(rt, cfg, log)
+                prompt, cont = continue_prompt(res), True
+                continue
             idle = idle + 1 if (cont and res.tool_calls == 0) else 0
             if idle >= MAX_CONTINUES or turn == MAX_SESSION_TURNS - 1:
                 break
@@ -212,4 +239,7 @@ def optimize(rt: Runtime, cfg: Config, ck: Checkpoint, target: str | None, budge
     res = run_agent(rt, cfg, work, prompt, verbose=verbose, timeout_min=minutes * 1.5 + 60)
     new = record_port(ck, res, "optimize")
     _report(new, res)
-    return new
+    if not res.result:
+        log(f"optimize did not finish; the registry keeps the last passing package ({new.get('package')})")
+    # The registry still holds the earlier passing port when the session failed: say which it was.
+    return {**new, "optimize_finished": res.result is not None}

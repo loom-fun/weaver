@@ -78,12 +78,37 @@ def model_entry(model_id: str, name: str, context: int, max_tokens: int, reasoni
             "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}}
 
 
+EFFORT_ORDER = ("minimal", "low", "medium", "high", "xhigh", "max")
+PI_LEVELS = EFFORT_ORDER   # Pi's thinking levels besides "off" (which only turns enable_thinking off)
+
+
+def level_map(supported) -> dict:
+    """Pi thinking level -> the reasoning_effort a card supports: the highest supported level at or below
+    the requested one, else the lowest supported. The Qwen3.8-27B card has low/medium/xhigh: Pi's `medium`
+    sends medium, `high` sends medium and `minimal` sends low, never a level loom-serve would reject."""
+    names = [s if isinstance(s, str) else (s or {}).get("name") for s in supported or []]
+    sup = [l for l in EFFORT_ORDER if l in names]
+    if not sup:
+        return {}
+    out = {}
+    for lvl in PI_LEVELS:
+        below = [s for s in sup if EFFORT_ORDER.index(s) <= EFFORT_ORDER.index(lvl)]
+        out[lvl] = below[-1] if below else sup[0]
+    return out
+
+
 def provider(name: str, base_url: str, models: list[dict]) -> dict:
-    # loom-serve: OpenAI chat completions, reasoning in `reasoning_content`, enable_thinking via
-    # chat_template_kwargs (Qwen style), usage in streaming, no developer role. Verified in M0.
+    # loom-serve: OpenAI chat completions, reasoning in `reasoning_content`, enable_thinking (Qwen style),
+    # usage in streaming, no developer role. Verified in M0. Pi sends reasoning_effort only with
+    # supportsReasoningEffort; without it every session ran at the card's default effort (xhigh for the
+    # Qwen3.8-27B agent) whatever --thinking said. It is on when every reasoning model carries a level map
+    # from its card, so no request names a level the card lacks.
+    reasoning = [m for m in models if m.get("reasoning")]
+    effort = bool(reasoning) and all(m.get("thinkingLevelMap") for m in reasoning)
     return {"name": name, "baseUrl": base_url, "api": "openai-completions", "apiKey": "local",
             "compat": {"thinkingFormat": "qwen", "requiresReasoningContentOnAssistantMessages": True,
-                       "supportsDeveloperRole": False, "supportsUsageInStreaming": True},
+                       "supportsDeveloperRole": False, "supportsUsageInStreaming": True,
+                       "supportsReasoningEffort": effort},
             "models": models}
 
 
@@ -97,8 +122,12 @@ def status_entry(status: dict, model_id: str | None = None, ctx_cap: int | None 
     if ctx_cap:
         ctx = min(ctx, ctx_cap)
     max_out = int((m.get("limits") or {}).get("max_output_tokens") or 4096)
-    return model_entry(m["id"], m.get("name") or m["id"], ctx, min(max_out, ctx),
-                       bool(m.get("reasoning")), "image" in (m.get("input_modalities") or []))
+    entry = model_entry(m["id"], m.get("name") or m["id"], ctx, min(max_out, ctx),
+                        bool(m.get("reasoning")), "image" in (m.get("input_modalities") or []))
+    levels = level_map(m.get("supported_reasoning_levels"))
+    if entry["reasoning"] and levels:
+        entry["thinkingLevelMap"] = levels
+    return entry
 
 
 def write_config(agent_dir: Path, providers: dict[str, dict], default: str | None,

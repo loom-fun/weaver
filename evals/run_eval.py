@@ -14,7 +14,7 @@ Each trial:
   - grading by outcome: the WEAVER_RESULT line, final gates and audit (from the trial's registry
     record), wall clock vs the budget, agent tool calls and tokens;
   - --regrade: re-check the package with the skills' frozen evaluator on a quiet GPU
-    (loom-improve/scripts/eval.sh: LEVEL=full gates + interleaved perf vs llama.cpp);
+    (loom-fleet/scripts/eval.sh: LEVEL=full gates + interleaved perf vs llama.cpp);
   - one row appended to evals/results.md.
 """
 import argparse
@@ -155,7 +155,7 @@ def regrade(row: dict) -> None:
         ranked = json.loads(pick.read_text()).get("ranked") or []
         if ranked and ranked[0].get("dir"):
             env.setdefault("LLAMACPP_DIR", ranked[0]["dir"])
-    r = subprocess.run(["bash", str(SKILLS / "loom-improve" / "scripts" / "eval.sh"), str(out), rec["package"], rec["gguf"]],
+    r = subprocess.run(["bash", str(SKILLS / "loom-fleet" / "scripts" / "eval.sh"), str(out), rec["package"], rec["gguf"]],
                        env=env, capture_output=True, text=True)
     (out / "eval.log").parent.mkdir(parents=True, exist_ok=True)
     (out / "eval.log").write_text(r.stdout + "\n--- stderr\n" + r.stderr)

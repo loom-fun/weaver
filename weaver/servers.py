@@ -107,7 +107,7 @@ def log_tail(name: str, n: int = 30) -> str:
 
 def memory_bytes_for(package: Path) -> int:
     """--memory_bytes for a package: what port.sh recorded, else weights + KV pool + workspace
-    (same formula as loom-improve/scripts/eval.sh)."""
+    (same formula as loom-fleet/scripts/eval.sh)."""
     card = json.loads((package / "model.json").read_text())
     rec = package / "memory_bytes"
     if rec.is_file():

@@ -38,7 +38,7 @@ it (`--no-spec` turns it off).
 
 - Linux x86-64 with glibc 2.39 or newer (Ubuntu 24.04 or newer). Windows will follow.
 - An AMD GPU with `/dev/kfd` access. Developed on Strix Halo (gfx1151, 128 GB).
-- About 64 GB of RAM at minimum. The agent model holds about 42 GiB while it works.
+- About 64 GB of RAM at minimum, 128 GB recommended. The agent model reserves 48 GB (`[agent] memory_bytes` in `config.toml`).
 - bash, curl, ss, pgrep, unzip and tar, which almost every distribution has. No Python, Node.js,
   ROCm SDK or git needed.
 

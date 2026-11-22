@@ -11,15 +11,20 @@ AGENT_CARD_PRESET = "chat"   # the card also has chat-r9700; loom-fetch needs on
 AGENT_CARD_REVISION = "b415cb8f75f7966bc89ce79988ce31fec2e71966"   # the loom-fun repo revision of the 0.2.0 card (promoted 2026-11-17)
 
 
+OLD_DEFAULT_MEMORY = (32_000_000_000,)   # agent memory_bytes defaults earlier releases wrote to config.toml
+
+
 @dataclass
 class AgentConfig:
     card: str = f"huggingface:{AGENT_CARD_REPO}:{AGENT_CARD_PRESET}@{AGENT_CARD_REVISION}"
     model_id: str = "qwen3.8-27b"
     port: int = 8079
-    # The card's 45 GB sizes 4 concurrent rows; weaver's sessions use one or two. 32 GB served a
-    # 100,130-token prompt correctly (M0) and leaves 43.8 GiB of the 60 % budget to the model being ported.
-    memory_bytes: int = 32_000_000_000
-    thinking: str = "medium"   # Pi thinking level for weaver's own sessions
+    # The card's 45 GB sizes 4 concurrent rows; weaver's sessions use one or two. 32 GB served a 100k-token
+    # prompt in M0, but on hrx-loom 0.2.0 the agent went "model is unavailable" ~40k tokens into 2 of 3
+    # Qwen3.5-9B optimize sessions on DevLab (2026-11-21). 48 GB leaves ~30 GiB of a 128 GB box's 60 % budget
+    # to the model being ported.
+    memory_bytes: int = 48_000_000_000
+    thinking: str = "medium"   # Pi thinking level for weaver's own sessions, sent as reasoning_effort
     # What Pi is told about the agent model. Pi compacts at contextWindow - 16k, so this bounds every
     # prompt; it must fit the KV pool memory_bytes leaves (32 GB served a 100k-token prompt). With the
     # model's own 262k, long gemma4 E4B sessions on DevLab grew past the pool (HTTP 503 "insufficient
@@ -59,6 +64,8 @@ def load() -> Config:
         for k, v in data.get("agent", {}).items():
             if hasattr(cfg.agent, k):
                 setattr(cfg.agent, k, v)
+        if cfg.agent.memory_bytes in OLD_DEFAULT_MEMORY:
+            cfg.agent.memory_bytes = AgentConfig.memory_bytes   # saved by an older weaver's init, not chosen
         if cfg.agent.card.startswith(f"https://huggingface.co/{AGENT_CARD_REPO}/resolve/"):
             cfg.agent.card = AgentConfig.card   # saved by weaver < 0.2: the hrx-loom 0.1.0 card; 0.2.0 needs the new one
         for k, v in data.get("defaults", {}).items():

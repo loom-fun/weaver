@@ -208,6 +208,7 @@ print(json.dumps({{"type": "message_end", "message": {{"role": "assistant", "sto
     monkeypatch.setattr(agent_server, "configure_pi", lambda *a, **k: "weaver-local/x")
     stopped = []
     monkeypatch.setattr(jobs, "cleanup_servers", lambda rt, work: stopped.append(work))
+    monkeypatch.setattr(jobs, "agent_server_down", lambda *a: False)
 
     class RT:
         skills = tmp_path
@@ -221,6 +222,72 @@ print(json.dumps({{"type": "message_end", "message": {{"role": "assistant", "sto
     calls = (work / "calls.txt").read_text().splitlines()
     assert len(calls) == 2 and "--continue" in calls[1] and "output limit" in calls[1]
     assert stopped == [work]
+
+
+def test_run_agent_restarts_a_dead_agent_server(tmp_path, monkeypatch, home):
+    """The agent's loom-serve fails mid-session: weaver restarts it and continues; a repeat failure ends the job."""
+    fake = tmp_path / "pi"
+    fake.write_text(f"""#!{sys.executable}
+import json
+print(json.dumps({{"type": "message_end", "message": {{"role": "assistant", "stopReason": "error",
+                                                    "content": [{{"type": "text", "text": ""}}]}}}}))
+""")
+    fake.chmod(0o755)
+    monkeypatch.setenv("WEAVER_PI", str(fake))
+    from weaver import agent_server, servers
+    events = []
+    monkeypatch.setattr(agent_server, "ensure_running", lambda *a, **k: events.append("start") or 8079)
+    monkeypatch.setattr(agent_server, "stop", lambda rt: events.append("stop") or True)
+    monkeypatch.setattr(agent_server, "configure_pi", lambda *a, **k: "weaver-local/x")
+    monkeypatch.setattr(jobs, "cleanup_servers", lambda rt, work: None)
+    monkeypatch.setattr(servers, "ready", lambda *a, **k: False)
+    monkeypatch.setattr(servers, "status", lambda *a, **k: {"data": [{"id": "x", "loom": {"registration": "failed"}}]})
+
+    class RT:
+        skills = tmp_path
+
+        def env(self, **kw):
+            return {**os.environ, **{k: str(v) for k, v in kw.items()}}
+
+    work = tmp_path / "work"
+    res = jobs.run_agent(RT(), config.Config(), work, "task")
+    assert res.result is None
+    assert events == ["start"] + ["stop", "start"] * jobs.MAX_AGENT_RESTARTS
+    downs = sorted((work / "state").glob("agent-server-down-*.txt"))
+    assert downs and '"failed"' in downs[0].read_text()
+
+
+def test_reasoning_effort_follows_the_card():
+    assert pi.level_map(["low", "medium", "xhigh"]) == {
+        "minimal": "low", "low": "low", "medium": "medium", "high": "medium", "xhigh": "xhigh", "max": "xhigh"}
+    assert pi.level_map([]) == {}
+    st = {"data": [{"id": "qwen3.8-27b", "reasoning": True, "context_length": 262144,
+                    "supported_reasoning_levels": ["none", "low", "medium", "xhigh"]}]}
+    e = pi.status_entry(st, "qwen3.8-27b")
+    assert e["thinkingLevelMap"]["medium"] == "medium"
+    assert pi.provider("w", "u", [e])["compat"]["supportsReasoningEffort"] is True
+    # A model whose card lists no levels: Pi must not send reasoning_effort at all.
+    bare = pi.model_entry("m", "M", 1000, 100, True)
+    assert pi.provider("w", "u", [e, bare])["compat"]["supportsReasoningEffort"] is False
+
+
+def test_old_default_agent_memory_is_migrated(home):
+    cfg = config.Config()
+    cfg.agent.memory_bytes = 32_000_000_000   # what weaver <= 0.1.5's init wrote
+    config.save(cfg)
+    assert config.load().agent.memory_bytes == 48_000_000_000
+
+
+def test_optimize_exit_needs_its_own_session(monkeypatch, home):
+    """A failed optimize session must not exit 0 just because the registry still holds the passing port."""
+    from weaver import cli
+    import weaver.runtime
+    monkeypatch.setattr(weaver.runtime, "Runtime", lambda *a, **k: object())
+    rec = {"gates": "PASS", "audit": "PASS", "package": "p"}
+    for finished, code in ((False, 1), (True, 0)):
+        monkeypatch.setattr(jobs, "optimize", lambda *a, f=finished, **k: {**rec, "optimize_finished": f})
+        assert cli.main(["optimize", "huggingface://unsloth/Qwen3.5-0.8B-GGUF"]) == code
+
 
 
 def test_upload_card_gets_run_commands(tmp_path):
@@ -331,6 +398,7 @@ def test_run_agent_continues_while_the_agent_makes_progress(tmp_path, monkeypatc
     monkeypatch.setattr(jobs.agent_server, "ensure_running", lambda *a: None)
     monkeypatch.setattr(jobs.agent_server, "configure_pi", lambda cfg: "m")
     monkeypatch.setattr(jobs, "cleanup_servers", lambda *a: None)
+    monkeypatch.setattr(jobs, "agent_server_down", lambda *a: False)
     monkeypatch.setattr(jobs.paths, "pi_dir", lambda: tmp_path)
     jobs.run_agent(RT(), config.Config(), tmp_path, "go")
     assert len(seen) == turns and seen[0] is False and all(seen[1:])

@@ -130,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "optimize":
             from weaver import jobs
             rec = jobs.optimize(rt, cfg, parse_ck(a.checkpoint), a.target, a.budget, no_spec=a.no_spec, verbose=a.verbose)
-            return 0 if rec.get("audit") == "PASS" else 1
+            return 0 if rec.get("optimize_finished") and rec.get("audit") == "PASS" else 1
         if a.cmd == "upload":
             from weaver.commands import upload
             return upload.run(rt, cfg, parse_ck(a.checkpoint), a.org, yes=a.yes, private=a.private, verbose=a.verbose)

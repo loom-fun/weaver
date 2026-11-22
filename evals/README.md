@@ -28,9 +28,9 @@ Grading is by outcome, not by path:
 - final LEVEL=full gates and AUDIT;
 - zero interventions;
 - wall clock against the budget;
-- perf against llama.cpp from the quiet-GPU regrade (the skills' frozen `loom-improve/scripts/eval.sh`).
+- perf against llama.cpp from the quiet-GPU regrade (the skills' frozen `loom-fleet/scripts/eval.sh`).
 
-Run trials one at a time: one GPU, and the agent model already takes about 42 GiB. Trace every
+Run trials one at a time: one GPU, and the agent model already reserves 48 GB. Trace every
 failure to one of three causes before changing anything: the skill, Pi or the model's capability,
 or weaver's glue. Skill causes go back to loom-skills through `loom-improve`. Measured wall clocks
 set `defaults.agent_slowdown` in `config.toml`.
