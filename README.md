@@ -104,7 +104,7 @@ On Strix Halo (gfx1151, 128 GB), with the local agent (details in [evals/results
 
 Known issues:
 - Weaver uses hrx-loom 0.3.0. Published Loom 0.2 packages, including Weaver's pinned Qwen3.8 agent card, continue to work through controller ABI 1. See `docs/release-notes.md` for the upgrade details and earlier measurements.
-- On a stock host (8 MiB memlock limit) weaver starts loom-serve with `--parameter_mode=preload` when the weights (up to 40 GB) fit in host memory (ROCm/hrx-system#3332). Larger packages need `ulimit -l unlimited` (`weaver doctor` shows the limit).
+- Loom 0.3 loads weights through its default buffered file mode. `weaver doctor` reports the host's locked-memory limit.
 - The release binary in a clean Ubuntu 24.04 container.
 
 ## Evals

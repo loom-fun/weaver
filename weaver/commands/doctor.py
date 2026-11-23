@@ -70,10 +70,7 @@ def checks() -> list[tuple[str, bool, str, str]]:
     r.append(("host tools", not missing, "all present" if not missing else "missing: " + " ".join(missing),
               "install them with your package manager (e.g. apt install curl iproute2 procps unzip)"))
     ml = servers.memlock_limit()
-    r.append(("memlock", True, "unlimited" if ml is None else f"{ml // 2**20} MiB",
-              "" if ml is None else "stock limit: weaver serves with --parameter_mode=preload when the weights "
-              f"(up to {servers.PRELOAD_MAX_BYTES // 10**9} GB) fit in host memory; for larger packages "
-              + servers.MEMLOCK_ADVICE))
+    r.append(("memlock", True, "unlimited" if ml is None else f"{ml // 2**20} MiB", ""))
     pb = pi.binary()
     r.append(("pi", True, str(pb) if pb else f"not installed yet (`weaver init` fetches Pi {pi.PI_VERSION})", ""))
     return r
@@ -85,7 +82,7 @@ def run() -> int:
         print(f"  {'ok ' if ok else 'FAIL'}  {name:11s} {detail}")
         if not ok:
             bad += 1
-        if fix and (not ok or name == "memlock"):
+        if fix and not ok:
             print(f"         -> {fix}")
     print("weaver doctor:", "all checks passed" if not bad else f"{bad} problem(s)")
     return 1 if bad else 0

@@ -1,6 +1,7 @@
 ## hrx-loom 0.3.0
 
 - Weaver and generated model instructions pin Loom SDK 0.3.0, and the bundle checks the installed wheel version before recording it.
+- The server uses Loom 0.3's default buffered file loading. This replaces Weaver's 0.2 preload workaround.
 - The installed SDK selects the catalog revision on upgrades, including existing pip environments. `weaver doctor` reports the installed Loom SDK.
 - The pinned Qwen3.8-27B agent card continues to use the published controller ABI 1. Its model revision and earlier performance results remain attributable to the corresponding release.
 

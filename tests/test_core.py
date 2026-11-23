@@ -351,16 +351,23 @@ def test_port_has_a_hard_stop():
     assert config.Config().defaults.port_timeout_min > 0
 
 
-def test_host_args_preload_on_stock_memlock(monkeypatch):
+def test_serve_leaves_parameter_mode_to_the_sdk(monkeypatch, tmp_path):
+    from types import SimpleNamespace
     from weaver import servers
-    monkeypatch.setattr(servers, "memlock_limit", lambda: 8 * 2**20)
-    monkeypatch.setattr(servers, "_mem_available", lambda: 100 * 2**30)
-    assert servers.host_args(17_000_000_000) == ["--parameter_mode=preload"]
-    assert servers.host_args(45_000_000_000) == []        # above the preload limit
-    monkeypatch.setattr(servers, "_mem_available", lambda: 20 * 2**30)
-    assert servers.host_args(17_000_000_000) == []        # the host copy would not fit
-    monkeypatch.setattr(servers, "memlock_limit", lambda: None)
-    assert servers.host_args(17_000_000_000) == []        # unlimited memlock: the default mode works
+
+    calls = []
+
+    def run(cmd, **_):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(servers.subprocess, "run", run)
+    runtime = SimpleNamespace(script=lambda name: tmp_path / name, env=lambda: {})
+    card = tmp_path / "model.json"
+    servers.start(runtime, "test", 8080, 123, [card])
+    assert calls[0][-1] == str(card)
+    servers.start(runtime, "test", 8080, 123, [card], extra=["--parameter_mode=direct"])
+    assert calls[1][-2:] == ["--", "--parameter_mode=direct"]
 
 
 def test_ensure_library_updates_a_stale_sdk_catalog(tmp_path, monkeypatch):

@@ -3,7 +3,6 @@ registration, verify the PID owns the port, and keep PID/log files in LOOM_SERVE
 import json
 import resource
 import subprocess
-import sys
 import urllib.request
 from pathlib import Path
 
@@ -27,50 +26,14 @@ def ready(port: int, model_id: str | None = None) -> bool:
                for m in st.get("data") or [])
 
 
-PRELOAD_FLAG = "--parameter_mode=preload"
-PRELOAD_MAX_BYTES = 40_000_000_000   # Strix Halo: the preloaded host copy shares the 128 GB with GPU memory
-MEMLOCK_ADVICE = ("raise the locked-memory limit (`ulimit -l unlimited`, or LimitMEMLOCK=infinity in a systemd "
-                  "unit) or start loom-serve with `systemd-run --user -p SystemCallFilter=~io_uring_setup`")
-
-
 def memlock_limit() -> int | None:
     """The soft locked-memory limit in bytes, None when unlimited."""
     soft = resource.getrlimit(resource.RLIMIT_MEMLOCK)[0]
     return None if soft == resource.RLIM_INFINITY else soft
 
 
-def _mem_available() -> int:
-    for line in Path("/proc/meminfo").read_text().splitlines():
-        if line.startswith("MemAvailable:"):
-            return int(line.split()[1]) * 1024
-    return 0
-
-
-def weights_bytes(model_jsons: list[Path]) -> int:
-    total = 0
-    for mj in model_jsons:
-        d = Path(mj).parent / "parameter"
-        if d.is_dir():
-            total += sum(p.resolve().stat().st_size for p in d.iterdir())
-    return total
-
-
-def host_args(weights: int) -> list[str]:
-    """Stock hosts (8 MiB memlock) cannot use the default parameter mode (ROCm/hrx-system#3332): preload the
-    weights into host memory instead, where that copy fits next to GPU memory. Nothing when memlock is
-    unlimited."""
-    if memlock_limit() is None or not weights:
-        return []
-    if weights <= PRELOAD_MAX_BYTES and _mem_available() > weights + 16 * 2**30:
-        return [PRELOAD_FLAG]
-    print(f"weaver: {weights / 1e9:.0f} GB of weights do not fit a host copy here and the memlock limit is "
-          f"{memlock_limit() // 2**20} MiB; if loom-serve fails to load them, {MEMLOCK_ADVICE}", file=sys.stderr)
-    return []
-
-
 def start(rt: Runtime, name: str, port: int, memory_bytes: int, model_jsons: list[Path],
           extra: list[str] | None = None) -> None:
-    extra = [*host_args(weights_bytes(model_jsons)), *(extra or [])]
     cmd = ["bash", str(rt.script("loom-setup/scripts/serve.sh")), name, str(port), "amdgpu",
            str(memory_bytes), *map(str, model_jsons)]
     if extra:
