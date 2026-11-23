@@ -1,9 +1,10 @@
 """weaver doctor: can this machine run weaver? Each failed check prints its fix."""
+import importlib.metadata as md
 import os
 import shutil
 from pathlib import Path
 
-from weaver import jobs, paths, pi, servers
+from weaver import jobs, paths, pi, runtime, servers
 
 MIN_GLIBC = (2, 39)          # hrx-loom wheels: Linux x86-64 glibc >= 2.39
 MIN_FREE_GIB = 40            # the agent model (17 GB, unless already in the HF cache) + a port's work
@@ -45,6 +46,12 @@ def checks() -> list[tuple[str, bool, str, str]]:
     g = _glibc()
     r.append(("glibc", bool(g and g >= MIN_GLIBC), ".".join(map(str, g)) if g else "unknown",
               "hrx-loom needs glibc >= 2.39 (Ubuntu 24.04 or newer)"))
+    try:
+        sdk = md.version("hrx-loom")
+    except md.PackageNotFoundError:
+        sdk = None
+    r.append(("Loom SDK", sdk == runtime.LOOM_SDK_VERSION, sdk or "missing",
+              f"reinstall weaver with its pinned hrx-loom {runtime.LOOM_SDK_VERSION}"))
     kfd = Path("/dev/kfd")
     r.append(("/dev/kfd", kfd.exists() and os.access(kfd, os.R_OK | os.W_OK), "present" if kfd.exists() else "missing",
               "install the amdgpu driver and add yourself to the render and video groups"))

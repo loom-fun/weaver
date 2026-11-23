@@ -53,7 +53,7 @@ It checks the machine, downloads the release tarball (150 MB) and verifies it ag
 `~/.local/bin`, adding that to your shell's PATH if it isn't there. Then it asks whether to run
 `weaver init` now. The bundle holds:
 - a relocatable CPython 3.12;
-- `hrx-loom[hf]` 0.2.0;
+- `hrx-loom[hf]` 0.3.0;
 - the Pi binary;
 - the pinned loom-skills;
 - the matching hrx-loom-library.
@@ -103,7 +103,7 @@ On Strix Halo (gfx1151, 128 GB), with the local agent (details in [evals/results
 - `weaver port` of Bolt-E4B (gemma4 E4B): full gates and audit PASS in 97.5 min, through the gemma4 reference example (Claude Code took 43.5).
 
 Known issues:
-- Verified on hrx-loom 0.1.0 (the evidence above); the 0.2.0 upgrade is checked by the unit tests and a serve/chat smoke test (`docs/release-notes.md`). Model packages built for 0.1.0 (card field `presets.*.execution.pool_capacity`) do not load on 0.2.0: serve the current loom-fun package or `weaver port` the GGUF again.
+- Weaver uses hrx-loom 0.3.0. Published Loom 0.2 packages, including Weaver's pinned Qwen3.8 agent card, continue to work through controller ABI 1. See `docs/release-notes.md` for the upgrade details and earlier measurements.
 - On a stock host (8 MiB memlock limit) weaver starts loom-serve with `--parameter_mode=preload` when the weights (up to 40 GB) fit in host memory (ROCm/hrx-system#3332). Larger packages need `ulimit -l unlimited` (`weaver doctor` shows the limit).
 - The release binary in a clean Ubuntu 24.04 container.
 

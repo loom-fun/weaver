@@ -361,3 +361,25 @@ def test_host_args_preload_on_stock_memlock(monkeypatch):
     assert servers.host_args(17_000_000_000) == []        # the host copy would not fit
     monkeypatch.setattr(servers, "memlock_limit", lambda: None)
     assert servers.host_args(17_000_000_000) == []        # unlimited memlock: the default mode works
+
+
+def test_ensure_library_updates_a_stale_sdk_catalog(tmp_path, monkeypatch):
+    home = tmp_path / "weaver"
+    root = home / "loom"
+    root.mkdir(parents=True)
+    old = home / "library-aaaaaaaaaaaa"
+    new = home / "library-bbbbbbbbbbbb"
+    old.mkdir()
+    new.mkdir()
+    (root / "library").symlink_to(old)
+    monkeypatch.setattr(runtime.paths, "home", lambda: home)
+    monkeypatch.setattr(runtime.paths, "bundle_root", lambda: None)
+    monkeypatch.setattr(runtime, "catalog_revision", lambda: "b" * 40)
+    assert runtime.ensure_library(root).resolve() == new
+    assert old.is_dir()
+
+    custom = tmp_path / "my-library"
+    custom.mkdir()
+    (root / "library").unlink()
+    (root / "library").symlink_to(custom)
+    assert runtime.ensure_library(root).resolve() == custom

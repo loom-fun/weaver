@@ -30,6 +30,8 @@ py="$root/python/bin/python3"
 "$py" -m pip install -q --no-warn-script-location --upgrade pip
 echo "== hrx-loom $HRX_LOOM_VERSION + weaver"
 "$py" -m pip install -q --no-warn-script-location "$repo"     # setup.py vendors the skills into the package
+installed_sdk=$("$py" -c 'from importlib.metadata import version; print(version("hrx-loom"))')
+[ "$installed_sdk" = "$HRX_LOOM_VERSION" ] || { echo "expected hrx-loom $HRX_LOOM_VERSION, installed $installed_sdk"; exit 1; }
 echo "== pi $PI_VERSION"
 tar -xzf "$dl/$PI_ASSET" -C "$root"             # -> root/pi/pi
 echo "== skills"

@@ -15,7 +15,7 @@ from pathlib import Path
 from weaver import jobs, paths, registry
 from weaver.checkpoint import Checkpoint
 from weaver.config import Config
-from weaver.runtime import Runtime
+from weaver.runtime import LOOM_SDK_VERSION, Runtime
 
 HF_CACHE_RE = re.compile(r"models--(?P<org>[^/]+?)--(?P<name>[^/]+)/snapshots/(?P<rev>[0-9a-f]{40})/(?P<file>.+)$")
 KEEP = ["model.json", "tokenizer.json", "weights.loom", "llm_config.json", "program"]
@@ -83,7 +83,7 @@ def run_commands(repo_id: str, model_id: str, memory_bytes) -> str:
     short = re.sub(r"[^a-z0-9.]+", "-", model_id.split("/")[-1].lower()).strip("-")
     mem = f" --memory_bytes={memory_bytes}" if memory_bytes else ""
     return ("```sh\n"
-            'pipx install "hrx-loom[hf]==0.2.0"\n'
+            f'pipx install "hrx-loom[hf]=={LOOM_SDK_VERSION}"\n'
             f"loom-fetch huggingface:{repo_id} --materialize=copy --output={short}\n"
             f"loom-serve --model={short} --device=amdgpu{mem}\n"
             "```")

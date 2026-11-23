@@ -1,3 +1,9 @@
+## hrx-loom 0.3.0
+
+- Weaver and generated model instructions pin Loom SDK 0.3.0, and the bundle checks the installed wheel version before recording it.
+- The installed SDK selects the catalog revision on upgrades, including existing pip environments. `weaver doctor` reports the installed Loom SDK.
+- The pinned Qwen3.8-27B agent card continues to use the published controller ABI 1. Its model revision and earlier performance results remain attributable to the corresponding release.
+
 ## hrx-loom 0.2.0
 
 - Weaver now runs on the Loom SDK hrx-loom 0.2.0 (PyPI) and the loom-fun model cards built for it, including the agent model (Qwen3.8-27B, preset `chat`). Packages built for 0.1.0 no longer load (the card field `presets.*.execution.pool_capacity` is gone). `weaver init` fetches the new agent model over an old one and updates a saved `config.toml` that still names the 0.1.0 card.

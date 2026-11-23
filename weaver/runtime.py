@@ -26,6 +26,7 @@ from weaver import paths
 # Skills weaver hands to Pi. loom-improve is for developing the skills themselves, not for users.
 AGENT_SKILLS = ["loom", "loom-setup", "loom-port-llm", "loom-benchmark", "loom-optimize",
                 "loom-roofline", "loom-demo-ui"]
+LOOM_SDK_VERSION = "0.3.0"
 SKILL_VAR = "${CLAUDE_SKILL_DIR}"
 
 
@@ -130,29 +131,40 @@ def ensure_library(root: Path | None = None) -> Path | None:
     """LOOM_ROOT/library at the SDK's catalog revision: the bundled copy, else a GitHub tarball."""
     root = root or paths.loom_root()
     lib = root / "library"
+    if lib.exists() and not lib.is_symlink():
+        return lib
+
+    current = lib.resolve() if lib.is_symlink() else None
     b = paths.bundle_root()
-    want = b / "library" if b and (b / "library").is_dir() else None
-    if lib.is_symlink() and (not lib.exists() or (want and lib.resolve() != want.resolve())):
-        lib.unlink()          # a previous version's bundle (upgraded or removed by install.sh)
-    if lib.exists():
-        return lib
-    if want:
-        lib.symlink_to(want)
-        return lib
-    rev = catalog_revision()
-    if not rev:
-        return None
-    dest = paths.home() / f"library-{rev[:12]}"
-    if not dest.is_dir():
-        url = f"https://codeload.github.com/ROCm/hrx-loom-library/tar.gz/{rev}"
-        data = urllib.request.urlopen(url, timeout=120).read()
-        tmp = dest.with_name(dest.name + ".tmp")
-        shutil.rmtree(tmp, ignore_errors=True)
-        with tarfile.open(fileobj=io.BytesIO(data)) as t:
-            t.extractall(tmp, filter="data")
-        (next(tmp.iterdir())).rename(dest)
-        shutil.rmtree(tmp, ignore_errors=True)
-    lib.symlink_to(dest)
+    bundled = b / "library" if b and (b / "library").is_dir() else None
+    if bundled:
+        target = bundled
+    else:
+        home = paths.home().resolve()
+        if current and lib.exists():
+            cached = current.parent == home and current.name.startswith("library-")
+            old_bundle = (current.name == "library" and current.parent.parent == home
+                          and (current.parent / "BUNDLE").is_file())
+            if not (cached or old_bundle):
+                return lib
+        rev = catalog_revision()
+        if not rev:
+            return lib if lib.exists() else None
+        target = home / f"library-{rev[:12]}"
+        if not target.is_dir():
+            url = f"https://codeload.github.com/ROCm/hrx-loom-library/tar.gz/{rev}"
+            data = urllib.request.urlopen(url, timeout=120).read()
+            tmp = target.with_name(target.name + ".tmp")
+            shutil.rmtree(tmp, ignore_errors=True)
+            with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+                archive.extractall(tmp, filter="data")
+            (next(tmp.iterdir())).rename(target)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    if current != target.resolve():
+        if lib.is_symlink():
+            lib.unlink()
+        lib.symlink_to(target)
     return lib
 
 

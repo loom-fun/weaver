@@ -8,7 +8,7 @@ from weaver import paths
 # to the full 262k context. Pinned to a revision so a release never changes its agent underneath.
 AGENT_CARD_REPO = "loom-fun/bartowski-Qwen3.8-27B-loom"
 AGENT_CARD_PRESET = "chat"   # the card also has chat-r9700; loom-fetch needs one named
-AGENT_CARD_REVISION = "b415cb8f75f7966bc89ce79988ce31fec2e71966"   # the loom-fun repo revision of the 0.2.0 card (promoted 2026-11-17)
+AGENT_CARD_REVISION = "b415cb8f75f7966bc89ce79988ce31fec2e71966"   # the published 0.2.0 card uses controller ABI 1, also supported by Loom 0.3.0
 
 
 @dataclass

@@ -24,7 +24,7 @@ repository and checks them against `model.json.lock`.
 ## How to run
 
 ```sh
-pipx install "hrx-loom[hf]==0.2.0"
+pipx install "hrx-loom[hf]==0.3.0"
 loom-fetch huggingface:<repo id> --materialize=copy --output=<short name>
 loom-serve --model=<short name> --device=amdgpu --memory_bytes=<memory_bytes>
 ```

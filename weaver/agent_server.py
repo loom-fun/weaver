@@ -15,8 +15,7 @@ def package_dir():
 
 
 def installed() -> bool:
-    """A fetched card of this SDK. A package fetched before hrx-loom 0.2.0 declares presets.*.execution.pool_capacity,
-    which 0.2.0 rejects: it counts as not installed, so `weaver init` fetches the current card over it."""
+    """A fetched compatible card. The Loom 0.1 pool_capacity field requires a fresh fetch."""
     mj = package_dir() / "model.json"
     return mj.is_file() and "pool_capacity" not in mj.read_text()
 
