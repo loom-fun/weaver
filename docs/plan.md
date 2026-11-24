@@ -225,7 +225,7 @@ and exits with "run weaver init" if the agent model is missing.
      - title "<Model> for AMD Loom";
      - an overview that names the base checkpoint and quant;
      - "weights not included; loom-fetch downloads and verifies against model.json.lock";
-     - how to run (`pip install "hrx-loom[hf]"`, `loom-fetch <model.json URL> --materialize=copy
+     - how to run (`pip install "hrx-loom[hf]"`, `loom-fetch <model.json URL>
        --output=…`, `loom-serve …`);
      - tags `loom`, `loom-serve`, `strix-halo`, `GGUF`; the license; `base_model`;
      - a perf and gates table from `bench/report.md`. This goes beyond the current loom-fun cards.

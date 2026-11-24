@@ -84,7 +84,7 @@ def run_commands(repo_id: str, model_id: str, memory_bytes) -> str:
     mem = f" --memory_bytes={memory_bytes}" if memory_bytes else ""
     return ("```sh\n"
             f'pipx install "hrx-loom[hf]=={LOOM_SDK_VERSION}"\n'
-            f"loom-fetch huggingface:{repo_id} --materialize=copy --output={short}\n"
+            f"loom-fetch huggingface:{repo_id} --output={short}\n"
             f"loom-serve --model={short} --device=amdgpu{mem}\n"
             "```")
 

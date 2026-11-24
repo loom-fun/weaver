@@ -25,9 +25,12 @@ repository and checks them against `model.json.lock`.
 
 ```sh
 pipx install "hrx-loom[hf]==0.3.0"
-loom-fetch huggingface:<repo id> --materialize=copy --output=<short name>
+loom-fetch huggingface:<repo id> --output=<short name>
 loom-serve --model=<short name> --device=amdgpu --memory_bytes=<memory_bytes>
 ```
+
+By default, `loom-fetch` shares cached files when possible. Add `--materialize=copy` when you need
+independent file copies for a portable package.
 
 The server listens on `127.0.0.1:8080` and accepts OpenAI-style `/v1/chat/completions` requests.
 Or, with weaver: `weaver serve huggingface://<repo id>`.
