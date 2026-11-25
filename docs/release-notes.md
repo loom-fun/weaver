@@ -1,10 +1,10 @@
 ## hrx-loom 0.3.0
 
-- Weaver and generated model instructions pin Loom SDK 0.3.0, and the bundle checks the installed wheel version before recording it.
-- Generated model cards use the default fetch mode, which shares cached files when possible. Users can request independent file copies with `--materialize=copy`.
-- The server uses Loom 0.3's default buffered file loading. This replaces Weaver's 0.2 preload workaround.
-- The installed SDK selects the catalog revision on upgrades, including existing pip environments. `weaver doctor` reports the installed Loom SDK.
-- The pinned Qwen3.8-27B agent card continues to use the published controller ABI 1. Its model revision and earlier performance results remain attributable to the corresponding release.
+- Weaver runs on the Loom SDK hrx-loom 0.3.0 (PyPI wheel, sha256-verified by the installer) and the bundled loom-skills for it. The bundle build checks that the wheel it installed is the pinned one.
+- Weights load through 0.3.0's default buffered file mode, which works under a stock 8 MiB memlock limit, so weaver no longer adds `--parameter_mode=preload` (0.3.0 removed that mode). `weaver doctor` reports the installed Loom SDK and the memlock limit.
+- Generated model cards (`weaver upload`, the card template) fetch with the SDK's default materialization, which reuses cached files; `--materialize=copy` still makes an independent copy.
+- The SDK's catalog revision is re-linked when an existing environment upgrades its wheel, unless the user points `library` somewhere else.
+- The agent model is the loom-fun Qwen3.8-27B card for 0.3.0 (preset `chat`). Loom 0.3.0 still serves the 0.2.0 card (controller ABI 1), so a saved 0.2.0 agent keeps working until `weaver init` fetches the new one.
 
 ## hrx-loom 0.2.0
 

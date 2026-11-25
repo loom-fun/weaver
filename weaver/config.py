@@ -8,7 +8,10 @@ from weaver import paths
 # to the full 262k context. Pinned to a revision so a release never changes its agent underneath.
 AGENT_CARD_REPO = "loom-fun/bartowski-Qwen3.8-27B-loom"
 AGENT_CARD_PRESET = "chat"   # the card also has chat-r9700; loom-fetch needs one named
-AGENT_CARD_REVISION = "b415cb8f75f7966bc89ce79988ce31fec2e71966"   # the published 0.2.0 card uses controller ABI 1, also supported by Loom 0.3.0
+AGENT_CARD_REVISION = "b415cb8f75f7966bc89ce79988ce31fec2e71966"   # the 0.2.0 card (ABI 1, served by 0.3.0 too); the promoted 0.3.0 card replaces it at promotion
+# Earlier default agent revisions: a config.toml that saved one of them follows the current default (an SDK upgrade
+# moves the agent with it). When AGENT_CARD_REVISION changes, append the old value here.
+PREVIOUS_AGENT_CARD_REVISIONS: tuple[str, ...] = ()
 
 
 @dataclass
@@ -61,6 +64,8 @@ def load() -> Config:
                 setattr(cfg.agent, k, v)
         if cfg.agent.card.startswith(f"https://huggingface.co/{AGENT_CARD_REPO}/resolve/"):
             cfg.agent.card = AgentConfig.card   # saved by weaver < 0.2: the hrx-loom 0.1.0 card; 0.2.0 needs the new one
+        if cfg.agent.card in {f"huggingface:{AGENT_CARD_REPO}:{AGENT_CARD_PRESET}@{r}" for r in PREVIOUS_AGENT_CARD_REVISIONS}:
+            cfg.agent.card = AgentConfig.card   # a former default agent: follow the current one
         for k, v in data.get("defaults", {}).items():
             if hasattr(cfg.defaults, k):
                 setattr(cfg.defaults, k, v)

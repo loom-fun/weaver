@@ -103,8 +103,8 @@ On Strix Halo (gfx1151, 128 GB), with the local agent (details in [evals/results
 - `weaver port` of Bolt-E4B (gemma4 E4B): full gates and audit PASS in 97.5 min, through the gemma4 reference example (Claude Code took 43.5).
 
 Known issues:
-- Weaver uses hrx-loom 0.3.0. Published Loom 0.2 packages, including Weaver's pinned Qwen3.8 agent card, continue to work through controller ABI 1. See `docs/release-notes.md` for the upgrade details and earlier measurements.
-- Loom 0.3 loads weights through its default buffered file mode. `weaver doctor` reports the host's locked-memory limit.
+- Verified on hrx-loom 0.1.0 (the evidence above); the 0.2.0 and 0.3.0 upgrades are checked by the unit tests and the install, init, agent and serve checks on DevLab (`evals/release_check.sh`, `docs/release-notes.md`). Model packages built for 0.1.0 (card field `presets.*.execution.pool_capacity`) do not load: serve the current loom-fun package or `weaver port` the GGUF again.
+- hrx-loom 0.3.0 loads weights in its default buffered file mode, which works at the stock 8 MiB memlock limit (`weaver doctor` shows the limit).
 - The release binary in a clean Ubuntu 24.04 container.
 
 ## Evals

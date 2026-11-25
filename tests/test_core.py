@@ -106,6 +106,17 @@ def test_config_roundtrip(home):
     assert config.load().agent.memory_bytes == 30_000_000_000
 
 
+def test_saved_former_default_agent_follows_the_default(home, monkeypatch):
+    old = f"huggingface:{config.AGENT_CARD_REPO}:{config.AGENT_CARD_PRESET}@{'0' * 40}"
+    custom = "huggingface:someone/other-loom:chat@" + "1" * 40
+    monkeypatch.setattr(config, "PREVIOUS_AGENT_CARD_REVISIONS", ("0" * 40,))
+    for saved, want in ((old, config.AgentConfig.card), (custom, custom)):
+        cfg = config.Config()
+        cfg.agent.card = saved
+        config.save(cfg)
+        assert config.load().agent.card == want
+
+
 def test_prompts_format():
     p = jobs.prompt_file("port.md").read_text().format(spec="a/b", work="/w", port=8160, memory_gib=30, spec_env="", skills="/s")
     assert "port.sh a/b /w 8160 30" in p

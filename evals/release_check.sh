@@ -14,6 +14,9 @@
 #      re-download): curl | bash under a pseudo-terminal, answering the init prompt; --version, help,
 #      doctor, an agent turn through `weaver agent`, `weaver serve` of a published package + a chat
 #      through the UI proxy, Ctrl-C cleanup; re-running the installer (an upgrade) keeps the agent
+# Before a Loom SDK promotion, the same check runs against the staging cards (evals/staging.env):
+#   AGENT_CARD  the agent card weaver init fetches (huggingface:ORG/REPO:PRESET@REV), written to config.toml first
+#   SERVE_REPO  the package `weaver serve` serves (default loom-fun/bartowski-Qwen3.8-27B-loom)
 set -u
 src=${1:-latest}; repo=${2:-loom-fun/weaver}
 here=$(cd "$(dirname "$0")" && pwd)
@@ -40,6 +43,11 @@ if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
 else echo "SKIP  tier 1 (no docker here; the build job runs it)"; fi
 
 export WEAVER_HOME="$dir/home" WEAVER_BIN_DIR="$dir/bin" WEAVER_NO_MODIFY_PATH=1
+SERVE_REPO=${SERVE_REPO:-loom-fun/bartowski-Qwen3.8-27B-loom}
+if [ -n "${AGENT_CARD:-}" ]; then        # weaver init keeps a saved agent card (config.load, then save)
+  mkdir -p "$WEAVER_HOME" && printf '[agent]\ncard = "%s"\n' "$AGENT_CARD" > "$WEAVER_HOME/config.toml"
+  echo "agent card: $AGENT_CARD"
+fi
 W="$dir/bin/weaver"
 # A terminal, as a user has: script(1) gives the installer a pty and a TERM (CI runners set none) (so the animation runs and the init
 # prompt reads /dev/tty); the "y" typed ahead answers the prompt.
@@ -59,12 +67,12 @@ check "agent (print mode) on the local model" \
   "'$W' agent --agent-args '--print --thinking off \"Reply with the value of the PI_MODEL environment variable (use bash).\"' </dev/null 2>/dev/null | grep -q qwen3.8-27b"
 check "agent server stopped after Pi exits" "! up 8079"
 log=$dir/serve.log
-setsid "$W" serve huggingface://loom-fun/bartowski-Qwen3.8-27B-loom --no-browser > "$log" 2>&1 < /dev/null &
+setsid "$W" serve "huggingface://$SERVE_REPO" --no-browser > "$log" 2>&1 < /dev/null &
 for _ in $(seq 200); do grep -q "Ctrl-C\|error" "$log" && break; sleep 2; done
 check "serve: UI up" "curl -s localhost:8090/api/targets | grep -q weaver"
 check "serve: chat through the UI proxy" \
   "curl -s localhost:8090/api/weaver/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\":\"qwen3.8-27b\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hi\"}],\"max_tokens\":16,\"chat_template_kwargs\":{\"enable_thinking\":false}}' | grep -q '\"content\"'"
-pid=$(pgrep -f "python3 -I -m weaver serve huggingface://loom-fun/bartowski" | grep -v "^$$\$" | head -1)
+pid=$(pgrep -f "python3 -I -m weaver serve huggingface://$SERVE_REPO" | grep -v "^$$\$" | head -1)
 [ -n "$pid" ] && kill -INT "$pid"; sleep 8
 check "serve: Ctrl-C stops the model and the UI" "! up 8080 && ! curl -s -m 2 localhost:8090/api/targets >/dev/null"
 check "re-install (upgrade): no prompt once the agent is set up, weaver still runs" \
